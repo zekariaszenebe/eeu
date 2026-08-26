@@ -1,0 +1,8 @@
+{
+  "name": "Remix EEU Feeder Interruption Dashboard",
+  "description": "An Electricity Utility Call Center Feeder Interruption Management System with live updates, admin controls, agent filters, and statistics, inspired by Ethiopian Electric Utility design.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

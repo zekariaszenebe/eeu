@@ -1,0 +1,181 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "Outfit", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --font-georgia: "Georgia", serif;
+  --font-arial: "Arial", sans-serif;
+  
+  --color-eeu-green: #078930;
+  --color-eeu-green-hover: #056924;
+  --color-eeu-yellow: #FCDD09;
+}
+
+@layer base {
+  body {
+    @apply font-sans transition-colors duration-200;
+  }
+}
+
+/* Frosted Glass Theme Mesh Backgrounds */
+.mesh-bg {
+  background: radial-gradient(circle at 10% 20%, rgba(7, 137, 48, 0.04) 0%, transparent 40%),
+              radial-gradient(circle at 90% 80%, rgba(252, 221, 9, 0.04) 0%, transparent 40%),
+              #f8fafc;
+}
+
+.dark .mesh-bg {
+  background: radial-gradient(circle at 15% 15%, rgba(7, 137, 48, 0.07) 0%, transparent 35%),
+              radial-gradient(circle at 85% 85%, rgba(252, 221, 9, 0.05) 0%, transparent 35%),
+              #030712;
+}
+
+/* Frosted Glass Cards classes */
+.glass-card {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 8px 32px 0 rgba(7, 137, 48, 0.02);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dark .glass-card {
+  background: rgba(17, 24, 39, 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25);
+}
+
+.glass-card:hover {
+  border-color: rgba(7, 137, 48, 0.25);
+  box-shadow: 0 10px 36px 0 rgba(7, 137, 48, 0.05);
+}
+
+.dark .glass-card:hover {
+  border-color: rgba(7, 137, 48, 0.15);
+  box-shadow: 0 10px 36px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* Glass Inputs */
+.glass-input {
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(200, 200, 200, 0.4);
+}
+
+.dark .glass-input {
+  background: rgba(17, 24, 39, 0.4);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Custom scrollbars for dashboard styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.5);
+}
+
+/* Beautiful custom animations and styling */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.33);
+    opacity: 1;
+  }
+  80%, 100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.pulse-bubble {
+  position: relative;
+}
+
+.pulse-bubble::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  border-radius: 9999px;
+  border: 2px solid currentColor;
+  animation: pulse-ring 1.8s cubic-bezier(0.215, 0.610, 0.355, 1) infinite;
+}
+
+/* Rich-text formatting styles for team leader bulletins */
+.rich-note-content b, 
+.rich-note-content strong,
+#note-rich-editor b,
+#note-rich-editor strong {
+  font-weight: 700 !important;
+}
+
+.rich-note-content i, 
+.rich-note-content em,
+#note-rich-editor i,
+#note-rich-editor em {
+  font-style: italic !important;
+}
+
+.rich-note-content u,
+#note-rich-editor u {
+  text-decoration: underline !important;
+}
+
+.rich-note-content s, 
+.rich-note-content del,
+#note-rich-editor s,
+#note-rich-editor del {
+  text-decoration: line-through !important;
+}
+
+.rich-note-content table,
+#note-rich-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+}
+
+.rich-note-content th,
+.rich-note-content td,
+#note-rich-editor th,
+#note-rich-editor td {
+  padding: 8px 12px;
+  border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+.rich-note-content th,
+#note-rich-editor th {
+  font-weight: bold;
+  background-color: rgba(156, 163, 175, 0.1);
+}
+
+/* Placeholder for rich text contenteditable editor */
+#note-rich-editor:empty:before {
+  content: attr(placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+  display: block;
+}
+.dark #note-rich-editor:empty:before {
+  color: #4b5563;
+}
+
