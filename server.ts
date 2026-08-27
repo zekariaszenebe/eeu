@@ -1,17 +1,18 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { createClient } from "@supabase/supabase-js";
 
-// Initialize Supabase Client
-const supabaseUrlRaw = process.env.SUPABASE_URL || "sb_publishable_ORXfYJUXKF6UUNXxIbAOLA_4gC1D4u2";
-const supabaseKey = process.env.SUPABASE_ANON_KEY || "sb_secret_mVuxA_1CRv98aG8ENreRdg_NxsfR0gW";
-
-const supabaseUrl = supabaseUrlRaw.startsWith("http") 
-  ? supabaseUrlRaw 
-  : (supabaseUrlRaw.includes(".") ? `https://${supabaseUrlRaw}` : `https://${supabaseUrlRaw}.supabase.co`);
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Mock In-Memory Database
+const db = {
+  interruptions: [] as any[],
+  notifications: [] as any[],
+  presetFeeders: [] as any[],
+  hubRecords: [] as any[],
+  teamLeaderNotes: [] as any[],
+  customerContacts: [] as any[],
+  teamLeaders: [] as any[],
+  feedbacks: [] as any[]
+};
 
 async function startServer() {
   const app = express();
@@ -20,201 +21,215 @@ async function startServer() {
   app.use(express.json());
 
   // === Interruptions ===
-  app.get("/api/interruptions", async (req, res) => {
-    const { data, error } = await supabase.from('interruptions').select('*').order('lastUpdated', { ascending: false });
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
+  app.get("/api/interruptions", (req, res) => {
+    res.json(db.interruptions.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime()));
   });
 
-  app.post("/api/interruptions", async (req, res) => {
-    const { data, error } = await supabase.from('interruptions').insert(req.body).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.post("/api/interruptions", (req, res) => {
+    const item = { ...req.body };
+    db.interruptions.push(item);
+    res.json(item);
   });
 
-  app.put("/api/interruptions/:id", async (req, res) => {
-    const { data, error } = await supabase.from('interruptions').update(req.body).eq('id', req.params.id).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.put("/api/interruptions/:id", (req, res) => {
+    const idx = db.interruptions.findIndex(i => i.id === req.params.id);
+    if (idx !== -1) {
+      db.interruptions[idx] = { ...db.interruptions[idx], ...req.body };
+      res.json(db.interruptions[idx]);
+    } else {
+      res.status(404).json({ error: "Not found" });
+    }
   });
 
-  app.delete("/api/interruptions/:id", async (req, res) => {
-    const { error } = await supabase.from('interruptions').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ error: error.message });
+  app.delete("/api/interruptions/:id", (req, res) => {
+    db.interruptions = db.interruptions.filter(i => i.id !== req.params.id);
     res.json({ success: true });
   });
 
   // === Notifications ===
-  app.get("/api/notifications", async (req, res) => {
-    const { data, error } = await supabase.from('notifications').select('*').order('timestamp', { ascending: false });
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
+  app.get("/api/notifications", (req, res) => {
+    res.json(db.notifications.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
   });
 
-  app.post("/api/notifications", async (req, res) => {
-    const { data, error } = await supabase.from('notifications').insert(req.body).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.post("/api/notifications", (req, res) => {
+    const item = { ...req.body };
+    db.notifications.push(item);
+    res.json(item);
   });
 
-  app.put("/api/notifications/:id/read", async (req, res) => {
-    const { data, error } = await supabase.from('notifications').update({ read: true }).eq('id', req.params.id).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.put("/api/notifications/:id/read", (req, res) => {
+    const idx = db.notifications.findIndex(i => i.id === req.params.id);
+    if (idx !== -1) {
+      db.notifications[idx].read = true;
+      res.json(db.notifications[idx]);
+    } else {
+      res.status(404).json({ error: "Not found" });
+    }
   });
 
-  app.put("/api/notifications/read-all", async (req, res) => {
-    const { error } = await supabase.from('notifications').update({ read: true }).eq('read', false);
-    if (error) return res.status(500).json({ error: error.message });
+  app.put("/api/notifications/read-all", (req, res) => {
+    db.notifications.forEach(n => n.read = true);
     res.json({ success: true });
   });
 
-  app.delete("/api/notifications", async (req, res) => {
-    const { error } = await supabase.from('notifications').delete().neq('id', 'dummy_never_match');
-    if (error) return res.status(500).json({ error: error.message });
+  app.delete("/api/notifications", (req, res) => {
+    db.notifications = [];
     res.json({ success: true });
   });
 
   // === Preset Feeders ===
-  app.get("/api/presetFeeders", async (req, res) => {
-    const { data, error } = await supabase.from('presetFeeders').select('feederStr');
-    if (error) return res.status(500).json({ error: error.message });
-    res.json((data || []).map(d => d.feederStr));
+  app.get("/api/presetFeeders", (req, res) => {
+    res.json(db.presetFeeders.map(f => f.feederStr));
   });
 
-  app.post("/api/presetFeeders", async (req, res) => {
-    const { data, error } = await supabase.from('presetFeeders').insert(req.body).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.post("/api/presetFeeders", (req, res) => {
+    const item = { ...req.body, id: Date.now().toString() };
+    db.presetFeeders.push(item);
+    res.json(item);
   });
   
-  app.post("/api/presetFeeders/bulk", async (req, res) => {
-    await supabase.from('presetFeeders').delete().neq('id', 'dummy_never_match');
-    const batch = req.body.feeders.map((f: string, idx: number) => ({ id: `feeder-${idx}-${Date.now()}`, feederStr: f }));
-    if(batch.length > 0) {
-      const { error } = await supabase.from('presetFeeders').insert(batch);
-      if (error) return res.status(500).json({ error: error.message });
+  app.post("/api/presetFeeders/bulk", (req, res) => {
+    db.presetFeeders = [];
+    if(req.body.feeders && req.body.feeders.length > 0) {
+      db.presetFeeders = req.body.feeders.map((f: string, idx: number) => ({
+        id: `feeder-${idx}-${Date.now()}`,
+        feederStr: f
+      }));
     }
     res.json({ success: true });
   });
 
-  app.delete("/api/presetFeeders/:feederStr", async (req, res) => {
-    const { error } = await supabase.from('presetFeeders').delete().eq('feederStr', req.params.feederStr);
-    if (error) return res.status(500).json({ error: error.message });
+  app.delete("/api/presetFeeders/:feederStr", (req, res) => {
+    db.presetFeeders = db.presetFeeders.filter(f => f.feederStr !== req.params.feederStr);
     res.json({ success: true });
   });
   
-  app.put("/api/presetFeeders", async (req, res) => {
-    const { error } = await supabase.from('presetFeeders').update({ feederStr: req.body.newFeederStr }).eq('feederStr', req.body.oldFeederStr);
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ success: true });
+  app.put("/api/presetFeeders", (req, res) => {
+    const item = db.presetFeeders.find(f => f.feederStr === req.body.oldFeederStr);
+    if (item) {
+      item.feederStr = req.body.newFeederStr;
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: "Not found" });
+    }
   });
 
   // === Hub Records ===
-  app.get("/api/hubRecords", async (req, res) => {
-    const { data, error } = await supabase.from('hubRecords').select('*').order('no', { ascending: true });
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
+  app.get("/api/hubRecords", (req, res) => {
+    res.json(db.hubRecords.sort((a, b) => (a.no || 0) - (b.no || 0)));
   });
 
-  app.put("/api/hubRecords/:no", async (req, res) => {
-    const { data, error } = await supabase.from('hubRecords').upsert(req.body, { onConflict: 'no' }).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.put("/api/hubRecords/:no", (req, res) => {
+    const idx = db.hubRecords.findIndex(h => h.no.toString() === req.params.no.toString());
+    if (idx !== -1) {
+      db.hubRecords[idx] = { ...db.hubRecords[idx], ...req.body };
+      res.json(db.hubRecords[idx]);
+    } else {
+      db.hubRecords.push(req.body);
+      res.json(req.body);
+    }
   });
   
-  app.post("/api/hubRecords/bulk", async (req, res) => {
-    const { error } = await supabase.from('hubRecords').upsert(req.body.records, { onConflict: 'no' });
-    if (error) return res.status(500).json({ error: error.message });
+  app.post("/api/hubRecords/bulk", (req, res) => {
+    for (const record of req.body.records) {
+      const idx = db.hubRecords.findIndex(h => h.no.toString() === record.no.toString());
+      if (idx !== -1) {
+        db.hubRecords[idx] = { ...db.hubRecords[idx], ...record };
+      } else {
+        db.hubRecords.push(record);
+      }
+    }
     res.json({ success: true });
   });
 
   // === Team Leader Notes ===
-  app.get("/api/teamLeaderNotes", async (req, res) => {
-    const { data, error } = await supabase.from('teamLeaderNotes').select('*').order('timestamp', { ascending: false });
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
+  app.get("/api/teamLeaderNotes", (req, res) => {
+    res.json(db.teamLeaderNotes.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
   });
 
-  app.post("/api/teamLeaderNotes", async (req, res) => {
-    const { data, error } = await supabase.from('teamLeaderNotes').insert(req.body).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.post("/api/teamLeaderNotes", (req, res) => {
+    const item = { ...req.body };
+    db.teamLeaderNotes.push(item);
+    res.json(item);
   });
 
-  app.put("/api/teamLeaderNotes/:id", async (req, res) => {
-    const { data, error } = await supabase.from('teamLeaderNotes').update(req.body).eq('id', req.params.id).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.put("/api/teamLeaderNotes/:id", (req, res) => {
+    const idx = db.teamLeaderNotes.findIndex(i => i.id === req.params.id);
+    if (idx !== -1) {
+      db.teamLeaderNotes[idx] = { ...db.teamLeaderNotes[idx], ...req.body };
+      res.json(db.teamLeaderNotes[idx]);
+    } else {
+      res.status(404).json({ error: "Not found" });
+    }
   });
 
-  app.delete("/api/teamLeaderNotes/:id", async (req, res) => {
-    const { error } = await supabase.from('teamLeaderNotes').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ error: error.message });
+  app.delete("/api/teamLeaderNotes/:id", (req, res) => {
+    db.teamLeaderNotes = db.teamLeaderNotes.filter(i => i.id !== req.params.id);
     res.json({ success: true });
   });
 
-  app.delete("/api/teamLeaderNotes", async (req, res) => {
-    const { error } = await supabase.from('teamLeaderNotes').delete().neq('id', 'dummy_never_match');
-    if (error) return res.status(500).json({ error: error.message });
+  app.delete("/api/teamLeaderNotes", (req, res) => {
+    db.teamLeaderNotes = [];
     res.json({ success: true });
   });
 
   // === Customer Contacts ===
-  app.get("/api/customerContacts", async (req, res) => {
-    const { data, error } = await supabase.from('customerContacts').select('*');
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
+  app.get("/api/customerContacts", (req, res) => {
+    res.json(db.customerContacts);
   });
 
-  app.post("/api/customerContacts", async (req, res) => {
-    const { data, error } = await supabase.from('customerContacts').insert(req.body).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.post("/api/customerContacts", (req, res) => {
+    const item = { ...req.body };
+    db.customerContacts.push(item);
+    res.json(item);
   });
 
-  app.put("/api/customerContacts/:id", async (req, res) => {
-    const { data, error } = await supabase.from('customerContacts').update(req.body).eq('id', req.params.id).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.put("/api/customerContacts/:id", (req, res) => {
+    const idx = db.customerContacts.findIndex(i => i.id === req.params.id);
+    if (idx !== -1) {
+      db.customerContacts[idx] = { ...db.customerContacts[idx], ...req.body };
+      res.json(db.customerContacts[idx]);
+    } else {
+      res.status(404).json({ error: "Not found" });
+    }
   });
 
-  app.delete("/api/customerContacts/:id", async (req, res) => {
-    const { error } = await supabase.from('customerContacts').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ error: error.message });
+  app.delete("/api/customerContacts/:id", (req, res) => {
+    db.customerContacts = db.customerContacts.filter(i => i.id !== req.params.id);
     res.json({ success: true });
   });
 
   // === Team Leaders ===
-  app.get("/api/teamLeaders", async (req, res) => {
-    const { data, error } = await supabase.from('teamLeaders').select('*');
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
+  app.get("/api/teamLeaders", (req, res) => {
+    res.json(db.teamLeaders);
   });
 
-  app.post("/api/teamLeaders", async (req, res) => {
-    const { data, error } = await supabase.from('teamLeaders').insert(req.body).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.post("/api/teamLeaders", (req, res) => {
+    const item = { ...req.body };
+    db.teamLeaders.push(item);
+    res.json(item);
   });
 
-  app.put("/api/teamLeaders/:id", async (req, res) => {
-    const { data, error } = await supabase.from('teamLeaders').update(req.body).eq('id', req.params.id).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.put("/api/teamLeaders/:id", (req, res) => {
+    const idx = db.teamLeaders.findIndex(i => i.id === req.params.id);
+    if (idx !== -1) {
+      db.teamLeaders[idx] = { ...db.teamLeaders[idx], ...req.body };
+      res.json(db.teamLeaders[idx]);
+    } else {
+      res.status(404).json({ error: "Not found" });
+    }
   });
 
-  app.delete("/api/teamLeaders/:id", async (req, res) => {
-    const { error } = await supabase.from('teamLeaders').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ error: error.message });
+  app.delete("/api/teamLeaders/:id", (req, res) => {
+    db.teamLeaders = db.teamLeaders.filter(i => i.id !== req.params.id);
     res.json({ success: true });
   });
 
   // === Feedbacks ===
-  app.post("/api/feedbacks", async (req, res) => {
-    const { data, error } = await supabase.from('feedbacks').insert(req.body).select();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data?.[0]);
+  app.post("/api/feedbacks", (req, res) => {
+    const item = { ...req.body };
+    db.feedbacks.push(item);
+    res.json(item);
   });
 
   // Vite middleware for development
