@@ -165,7 +165,7 @@ export default function Sidebar({
             </div>
             <div className="flex flex-col text-left leading-tight overflow-hidden">
               <span className="text-[13px] font-bold text-gray-950 dark:text-white font-sans truncate">
-                {isAdmin ? 'Admin' : isTeamLeader ? (currentTeamLeader?.name || 'Zekarias Zenebe') : 'Call Agent'}
+                {isAdmin ? 'Admin' : isTeamLeader ? (currentTeamLeader?.name || 'Team Leader') : 'Call Agent'}
               </span>
             </div>
           </div>

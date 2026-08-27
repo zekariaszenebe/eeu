@@ -687,10 +687,7 @@ export default function App() {
                   </div>
                   <div className="flex flex-col text-left leading-tight overflow-hidden">
                     <span className="text-xs font-bold text-gray-950 dark:text-white font-sans tracking-tight truncate">
-                      {isAdmin ? 'Admin' : userRole === 'team_leader' ? (currentTeamLeader?.name || 'Zekarias Zenebe') : 'Call Agent'}
-                    </span>
-                    <span className="text-[10.5px] text-gray-500 dark:text-gray-400 font-medium font-sans truncate">
-                      {isAdmin ? 'Admin Profile' : userRole === 'team_leader' ? (currentTeamLeader?.district || 'Team Leader') : 'Call Center Profile'}
+                      {isAdmin ? 'Admin' : userRole === 'team_leader' ? (currentTeamLeader?.name || 'Team Leader') : 'Call Agent'}
                     </span>
                   </div>
                 </div>
