@@ -92,18 +92,18 @@ export default function WebLoginScreen({ onLoginSuccess, teamLeaders = [] }: Web
         (strippedUser === 'teamleader' || strippedUser === 'tl' || strippedUser === 'team_a' || strippedUser === 'team_b' || strippedUser === 'team_c' || strippedUser === 'team_d' || strippedUser === 'teama' || strippedUser === 'teamb' || strippedUser === 'teamc' || strippedUser === 'teamd' || strippedUser === 'zekarias' || strippedUser === 'zekariaszenebe' || strippedUser === 'zekarias_zenebe' || strippedUser === 'zenebe') && 
         (password === 'Tl@1234' || password === 'Eeu@1234' || password === '@Eeu1234')
       ) {
-        let teamName = 'Team A Leader';
+        let teamName = 'Team Leader';
         let districtName = 'Team A';
         if (strippedUser === 'team_b' || strippedUser === 'teamb') {
-          teamName = 'Team B Leader';
+          teamName = 'Team Leader';
           districtName = 'Team B';
         }
         if (strippedUser === 'team_c' || strippedUser === 'teamc') {
-          teamName = 'Team C Leader';
+          teamName = 'Team Leader';
           districtName = 'Team C';
         }
         if (strippedUser === 'team_d' || strippedUser === 'teamd' || strippedUser === 'zekarias' || strippedUser === 'zekariaszenebe' || strippedUser === 'zekarias_zenebe' || strippedUser === 'zenebe') {
-          teamName = 'Zekarias Zenebe';
+          teamName = 'Team Leader';
           districtName = 'Team D';
         }
 
