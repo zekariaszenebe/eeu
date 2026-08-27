@@ -37,7 +37,7 @@ function setLocal<T>(key: string, data: T) {
 }
 
 export async function seedInitialDataIfEmpty() {
-  const SEED_STORAGE_KEY = 'eeu-local-seeded-v4';
+  const SEED_STORAGE_KEY = 'eeu-local-seeded-v5';
   if (typeof window !== 'undefined' && localStorage.getItem(SEED_STORAGE_KEY)) {
     return;
   }
@@ -57,11 +57,10 @@ export async function seedInitialDataIfEmpty() {
     const teamLeadersRes = await fetchApi('/api/teamLeaders');
     if (teamLeadersRes.length === 0) {
       const defaultTeamLeaders: TeamLeaderUser[] = [
-        { id: 'tl-a', username: '@team_a', password: 'Tl@1234', name: 'Team A Leader', district: 'Team A', createdAt: new Date().toISOString() },
-        { id: 'tl-b', username: '@team_b', password: 'Tl@1234', name: 'Team B Leader', district: 'Team B', createdAt: new Date().toISOString() },
-        { id: 'tl-c', username: '@team_c', password: 'Tl@1234', name: 'Team C Leader', district: 'Team C', createdAt: new Date().toISOString() },
-        { id: 'tl-d', username: '@team_d', password: 'Tl@1234', name: 'Zekarias Zenebe', district: 'Team D', createdAt: new Date().toISOString() },
-        { id: 'tl-e', username: 'zz01641821', password: 'eeu1234', name: 'Zekarias Zenebe', district: 'Admin', createdAt: new Date().toISOString() }
+        { id: 'admin-1', username: 'admin', password: '@Eeu1234', name: 'System Administrator', district: 'Admin', role: 'admin', createdAt: new Date().toISOString() },
+        { id: 'agent-1', username: 'contactcenter', password: '@Eeu1234', name: 'Contact Center Agent', district: 'Team A', role: 'agent', createdAt: new Date().toISOString() },
+        { id: 'tl-1', username: 'teamleader', password: '@Eeu1234', name: 'Team Leader', district: 'Team D', role: 'team_leader', createdAt: new Date().toISOString() },
+        { id: 'tl-d', username: 'zz01641821', password: 'eeu1234', name: 'Zekarias Zenebe', district: 'Admin', role: 'admin', createdAt: new Date().toISOString() }
       ];
       for (const tl of defaultTeamLeaders) {
         await fetchApi('/api/teamLeaders', { method: 'POST', body: JSON.stringify(tl) });

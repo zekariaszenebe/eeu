@@ -68,7 +68,7 @@ export default function WebLoginScreen({ onLoginSuccess, teamLeaders = [] }: Web
       }
 
       // 1. Check if Admin
-      if ((strippedUser === 'admin' || withAtUser === '@admin') && password === 'Eeu@1234') {
+      if ((strippedUser === 'admin' || withAtUser === '@admin') && (password === 'Eeu@1234' || password === '@Eeu1234')) {
         saveCredentials();
         onLoginSuccess('admin');
         return;
@@ -90,7 +90,7 @@ export default function WebLoginScreen({ onLoginSuccess, teamLeaders = [] }: Web
       // Default hardcoded Team Leader fallback (Teams A, B, C, D and named Team Leaders like Zekarias Zenebe)
       if (
         (strippedUser === 'teamleader' || strippedUser === 'tl' || strippedUser === 'team_a' || strippedUser === 'team_b' || strippedUser === 'team_c' || strippedUser === 'team_d' || strippedUser === 'teama' || strippedUser === 'teamb' || strippedUser === 'teamc' || strippedUser === 'teamd' || strippedUser === 'zekarias' || strippedUser === 'zekariaszenebe' || strippedUser === 'zekarias_zenebe' || strippedUser === 'zenebe') && 
-        (password === 'Tl@1234' || password === 'Eeu@1234')
+        (password === 'Tl@1234' || password === 'Eeu@1234' || password === '@Eeu1234')
       ) {
         let teamName = 'Team A Leader';
         let districtName = 'Team A';
@@ -120,7 +120,7 @@ export default function WebLoginScreen({ onLoginSuccess, teamLeaders = [] }: Web
       }
 
       // 3. Check Contact Center Agent
-      if ((strippedUser === 'contactcenter' || strippedUser === 'agent') && password === 'Eeu@1234') {
+      if ((strippedUser === 'contactcenter' || strippedUser === 'agent') && (password === 'Eeu@1234' || password === '@Eeu1234')) {
         saveCredentials();
         onLoginSuccess('agent');
         return;
