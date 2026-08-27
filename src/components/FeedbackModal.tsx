@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { MessageCircle, Send, X, Star, CheckCircle, Mail, Copy, Check, ExternalLink, Sparkles } from 'lucide-react';
-import { addFeedbackDoc } from '../lib/firestoreService';
+import { addFeedbackDoc } from '../lib/apiService';
 
 interface FeedbackModalProps {
   isOpen: boolean;
@@ -56,7 +56,7 @@ export default function FeedbackModal({ isOpen, onClose, userRole = 'Contact Age
 
     const bodyContent = buildBodyContent();
 
-    // 1. Store in Firestore database
+    // 1. Store in Database database
     try {
       await addFeedbackDoc({
         rating,

@@ -6,7 +6,7 @@ import {
   deleteInterruptionDoc, 
   subscribeToInterruptions,
   seedInitialDataIfEmpty
-} from '../lib/firestoreService';
+} from '../lib/apiService';
 
 interface InterruptionContextType {
   interruptions: FeederInterruption[];
@@ -108,7 +108,7 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
   }, []);
 
-  // Subscribe to real-time updates from firestore database
+  // Subscribe to real-time updates from Database
   useEffect(() => {
     let unsub = () => {};
     seedInitialDataIfEmpty().then(() => {
@@ -122,7 +122,7 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
           try {
             localStorage.setItem('eeu-interruptions', serializedNext);
           } catch (e) {
-            console.error('Failed to write Firestore updates to localStorage', e);
+            console.error('Failed to write Database updates to localStorage', e);
           }
           channel?.postMessage({ type: 'SYNC_INTERRUPTIONS', data: items });
           return items;
@@ -185,7 +185,7 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       await addInterruptionDoc(entry, tempId);
       triggerToast('New Outage Added', `${entry.feederName} has been synchronized across agent terminals`, 'warn');
     } catch (e) {
-      console.error('Firestore addInterruptionDoc failed, using local offline fallback:', e);
+      console.error('Database addInterruptionDoc failed, using local offline fallback:', e);
       triggerToast('Saved Offline', `${entry.feederName} saved locally. Will sync with backend when network is restored.`, 'info');
     }
   };
@@ -236,7 +236,7 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
         triggerToast('Record Updated', `Successfully updated grid data for ${existing.feederName}`, 'success');
       }
     } catch (e) {
-      console.error('Firestore updateInterruptionDoc failed, using local offline fallback:', e);
+      console.error('Database updateInterruptionDoc failed, using local offline fallback:', e);
       triggerToast('Updated Locally', `Saved modifications for ${existing.feederName} locally.`, 'info');
     }
   };
@@ -263,7 +263,7 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
         triggerToast('Record Removed', `${target.feederName} interruption cleared from dispatch lists.`, 'info');
       }
     } catch (e) {
-      console.error('Firestore deleteInterruptionDoc failed, keeping deletion locally:', e);
+      console.error('Database deleteInterruptionDoc failed, keeping deletion locally:', e);
       if (target) {
         triggerToast('Deleted Locally', `${target.feederName} removed locally.`, 'info');
       }

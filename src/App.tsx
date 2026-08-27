@@ -13,7 +13,7 @@ import { FeederInterruption, InterruptionType, InterruptionStatus, SystemNotific
 import { INITIAL_INTERRUPTIONS, INITIAL_NOTIFICATIONS, INITIAL_DISTRICTS, INITIAL_FEEDERS_LIST } from './data/mockData';
 import { FEEDERS_VERSION } from './data/feedersList';
 
-// Firestore Services
+// Database Services
 import { 
   seedInitialDataIfEmpty,
   subscribeToInterruptions,
@@ -43,7 +43,7 @@ import {
   addTeamLeaderDoc,
   updateTeamLeaderDoc,
   deleteTeamLeaderDoc
-} from './lib/firestoreService';
+} from './lib/apiService';
 import { HubRecord } from './data/hubData';
 
 // Subcomponents
@@ -172,7 +172,7 @@ export default function App() {
     });
   };
 
-  // Seed initial data if needed and subscribe to Firestore updates in real-time
+  // Seed initial data if needed and subscribe to Database updates in real-time
   useEffect(() => {
     let unsubNotifications = () => {};
     let unsubFeeders = () => {};
@@ -261,7 +261,7 @@ export default function App() {
     }
   };
 
-  // Syncing feeders list updates to Firestore
+  // Syncing feeders list updates to Database
   const handleUpdateFeedersList = async (newList: string[]) => {
     try {
       const prevList = [...feedersList];

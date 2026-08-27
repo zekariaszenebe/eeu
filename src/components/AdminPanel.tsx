@@ -725,7 +725,7 @@ export default function AdminPanel({
                     }
                   }}
                   className="px-3.5 py-2.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
-                  title={`Force re-sync and restore the complete ${INITIAL_FEEDERS_LIST.length} master feeder line database to Firestore and local cache`}
+                  title={`Force re-sync and restore the complete ${INITIAL_FEEDERS_LIST.length} master feeder line database to Database and local cache`}
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                   <span>Sync Master Database ({INITIAL_FEEDERS_LIST.length})</span>

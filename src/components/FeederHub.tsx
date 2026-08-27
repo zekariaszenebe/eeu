@@ -233,7 +233,7 @@ export function FeederHub({ isAdmin = false, hubRecords = HUB_RECORDS, onUpdateR
           <Check className="w-5 h-5 shrink-0" />
           <div>
             <p className="font-bold text-xs">CSC Address Updated</p>
-            <p className="text-[10px] opacity-90">Changes have been successfully saved to Firestore.</p>
+            <p className="text-[10px] opacity-90">Changes have been successfully saved to Database.</p>
           </div>
         </div>
       )}
