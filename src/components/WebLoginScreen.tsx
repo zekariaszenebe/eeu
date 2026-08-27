@@ -74,7 +74,7 @@ export default function WebLoginScreen({ onLoginSuccess, teamLeaders = [] }: Web
         return;
       }
 
-      // 2. Check registered Team Leaders in database
+      // 2. Check registered Users in database
       const matchedTL = teamLeaders.find((tl) => {
         const tlUser = tl.username.trim().toLowerCase();
         const tlStripped = tlUser.startsWith('@') ? tlUser.substring(1) : tlUser;
@@ -83,7 +83,7 @@ export default function WebLoginScreen({ onLoginSuccess, teamLeaders = [] }: Web
 
       if (matchedTL) {
         saveCredentials();
-        onLoginSuccess('team_leader', matchedTL);
+        onLoginSuccess(matchedTL.role || 'team_leader', matchedTL);
         return;
       }
 

@@ -65,6 +65,7 @@ export interface TeamLeaderUser {
   password: string;
   name: string;
   district?: string;
+  role?: UserRole;
   mustChangePassword?: boolean;
   createdAt: string;
 }

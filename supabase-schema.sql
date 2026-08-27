@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS "teamLeaders" (
   "password" text NOT NULL,
   "name" text NOT NULL,
   "district" text NOT NULL,
+  "role" text DEFAULT 'team_leader',
   "mustChangePassword" boolean,
   "createdAt" text NOT NULL
 );

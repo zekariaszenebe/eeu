@@ -149,8 +149,10 @@ export default function AdminPanel({
   const [editingTL, setEditingTL] = useState<TeamLeaderUser | null>(null);
   const [tlName, setTlName] = useState('');
   const [tlDistrict, setTlDistrict] = useState(INITIAL_DISTRICTS[0]);
+  const [tlRole, setTlRole] = useState<UserRole>('team_leader');
   const [tlUsername, setTlUsername] = useState('');
   const [tlPassword, setTlPassword] = useState('');
+
   const [tlFormError, setTlFormError] = useState('');
   const [visibleTLPasswords, setVisibleTLPasswords] = useState<Record<string, boolean>>({});
 
@@ -162,6 +164,7 @@ export default function AdminPanel({
     setEditingTL(null);
     setTlName('');
     setTlDistrict(INITIAL_DISTRICTS[0]);
+    setTlRole('team_leader');
     setTlUsername('');
     setTlPassword('');
     setTlFormError('');
@@ -172,6 +175,7 @@ export default function AdminPanel({
     setEditingTL(tl);
     setTlName(tl.name);
     setTlDistrict(tl.district || INITIAL_DISTRICTS[0]);
+    setTlRole(tl.role || 'team_leader');
     setTlUsername(tl.username);
     setTlPassword(tl.password);
     setTlFormError('');
@@ -212,6 +216,7 @@ export default function AdminPanel({
           ...editingTL,
           name: tlName.trim(),
           district: tlDistrict,
+          role: tlRole,
           username: cleanUser,
           password: tlPassword.trim()
         });
@@ -221,6 +226,7 @@ export default function AdminPanel({
         onAddTeamLeader({
           name: tlName.trim(),
           district: tlDistrict,
+          role: tlRole,
           username: cleanUser,
           password: tlPassword.trim()
         });
@@ -1192,9 +1198,9 @@ export default function AdminPanel({
                           </div>
                         </td>
                         <td className="py-3.5 px-4">
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
-                            <Plus className="w-3 h-3" />
-                            <span>Add Interruption Only</span>
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-bold border ${tl.role === 'admin' ? 'bg-purple-500/10 text-purple-600 border-purple-500/20' : tl.role === 'agent' ? 'bg-gray-500/10 text-gray-600 border-gray-500/20' : 'bg-sky-500/10 text-sky-600 border-sky-500/20'}`}>
+                            <Shield className="w-3 h-3" />
+                            <span className="capitalize">{tl.role ? tl.role.replace('_', ' ') : 'Team Leader'}</span>
                           </span>
                         </td>
                         <td className="py-3.5 px-4 text-right">
@@ -1784,6 +1790,21 @@ export default function AdminPanel({
                   {INITIAL_DISTRICTS.map((d) => (
                     <option key={d} value={d}>{d}</option>
                   ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                  System Role
+                </label>
+                <select
+                  value={tlRole}
+                  onChange={(e) => setTlRole(e.target.value as UserRole)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
+                >
+                  <option value="team_leader">Team Leader (Manage Outages)</option>
+                  <option value="admin">Administrator (Manage Users & Outages)</option>
+                  <option value="agent">Agent (View Only)</option>
                 </select>
               </div>
 
