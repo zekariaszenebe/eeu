@@ -521,7 +521,15 @@ export default function AdminPanel({
       'Last Updated'
     ];
 
-    const rows = interruptions.map(item => [
+    const sortedInterruptionsForCSV = [...interruptions].sort((a, b) => {
+      const aRestored = a.status === InterruptionStatus.RESTORED;
+      const bRestored = b.status === InterruptionStatus.RESTORED;
+      if (aRestored && !bRestored) return 1;
+      if (!aRestored && bRestored) return -1;
+      return 0;
+    });
+
+    const rows = sortedInterruptionsForCSV.map(item => [
       item.id,
       item.feederName,
       item.district,
@@ -577,7 +585,15 @@ export default function AdminPanel({
       'Last Updated'
     ];
 
-    const rows = interruptions.map(item => [
+    const sortedInterruptionsForTSV = [...interruptions].sort((a, b) => {
+      const aRestored = a.status === InterruptionStatus.RESTORED;
+      const bRestored = b.status === InterruptionStatus.RESTORED;
+      if (aRestored && !bRestored) return 1;
+      if (!aRestored && bRestored) return -1;
+      return 0;
+    });
+
+    const rows = sortedInterruptionsForTSV.map(item => [
       `f-${item.id}`,
       item.feederName,
       item.district,
@@ -839,7 +855,13 @@ export default function AdminPanel({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800/60 text-sm">
-                {interruptions.map((item) => {
+                {[...interruptions].sort((a, b) => {
+                  const aRestored = a.status === InterruptionStatus.RESTORED;
+                  const bRestored = b.status === InterruptionStatus.RESTORED;
+                  if (aRestored && !bRestored) return 1;
+                  if (!aRestored && bRestored) return -1;
+                  return 0;
+                }).map((item) => {
                   const isRestored = item.status === InterruptionStatus.RESTORED;
                   return (
                     <tr 

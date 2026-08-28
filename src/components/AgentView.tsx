@@ -705,6 +705,12 @@ export default function AgentView({ interruptions, onTriggerMockIncident, isAdmi
 
   // Process Sorting
   const sortedItems = [...filteredItems].sort((a, b) => {
+    // Put restored items at the bottom
+    const aRestored = a.status === InterruptionStatus.RESTORED;
+    const bRestored = b.status === InterruptionStatus.RESTORED;
+    if (aRestored && !bRestored) return 1;
+    if (!aRestored && bRestored) return -1;
+
     if (sortBy === 'name') {
       return a.feederName.localeCompare(b.feederName);
     }

@@ -22,7 +22,13 @@ export default function NotificationCenter({
 
   // Filter 5 most recently updated feeders
   const recentlyUpdatedFeeders = [...interruptions]
-    .sort((a, b) => b.lastUpdated.localeCompare(a.lastUpdated))
+    .sort((a, b) => {
+      const aRestored = a.status === InterruptionStatus.RESTORED;
+      const bRestored = b.status === InterruptionStatus.RESTORED;
+      if (aRestored && !bRestored) return 1;
+      if (!aRestored && bRestored) return -1;
+      return b.lastUpdated.localeCompare(a.lastUpdated);
+    })
     .slice(0, 5);
 
   return (
