@@ -461,8 +461,11 @@ export default function AdminPanel({
       return;
     }
 
-    const isEarthFaultOrShortCircuit = type === InterruptionType.EARTH_FAULT || type === InterruptionType.SHORT_CIRCUIT;
-    const finalEstimatedRestoration = isEarthFaultOrShortCircuit ? 'N/A' : estimatedRestoration;
+    const isFaultType = type === InterruptionType.EARTH_FAULT || 
+                        type === InterruptionType.SHORT_CIRCUIT ||
+                        type === InterruptionType.DIFFERENTIAL ||
+                        type === InterruptionType.OVER_CURRENT;
+    const finalEstimatedRestoration = isFaultType ? 'N/A' : estimatedRestoration;
 
     const finalDistrict = (isTeamLeader || userRole === 'team_leader')
       ? (currentTeamLeader?.district || district || 'Team D')
@@ -1538,7 +1541,7 @@ export default function AdminPanel({
 
               {/* Timing */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className={(type === InterruptionType.EARTH_FAULT || type === InterruptionType.SHORT_CIRCUIT) ? 'sm:col-span-2' : ''}>
+                <div className={(type === InterruptionType.EARTH_FAULT || type === InterruptionType.SHORT_CIRCUIT || type === InterruptionType.DIFFERENTIAL || type === InterruptionType.OVER_CURRENT) ? 'sm:col-span-2' : ''}>
                   <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase font-mono tracking-wider mb-1.5">
                     Interruption Start Time
                   </label>
@@ -1552,7 +1555,7 @@ export default function AdminPanel({
                   />
                 </div>
 
-                {type !== InterruptionType.EARTH_FAULT && type !== InterruptionType.SHORT_CIRCUIT && (
+                {type !== InterruptionType.EARTH_FAULT && type !== InterruptionType.SHORT_CIRCUIT && type !== InterruptionType.DIFFERENTIAL && type !== InterruptionType.OVER_CURRENT && (
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase font-mono tracking-wider mb-1.5">
                       Estimated Restoration Time

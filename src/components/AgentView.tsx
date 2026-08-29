@@ -162,6 +162,18 @@ export function getTypeBadgeStyles(type: InterruptionType) {
         icon: Settings,
         colorClass: 'text-indigo-500'
       };
+    case InterruptionType.DIFFERENTIAL:
+      return {
+        bg: 'bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200/50 dark:border-purple-950/30',
+        icon: Zap,
+        colorClass: 'text-purple-500'
+      };
+    case InterruptionType.OVER_CURRENT:
+      return {
+        bg: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200/50 dark:border-amber-950/30',
+        icon: Zap,
+        colorClass: 'text-amber-500'
+      };
     default:
       return {
         bg: 'bg-gray-500/10 text-gray-700 dark:text-gray-400 border-gray-200/50 dark:border-gray-950/40',
