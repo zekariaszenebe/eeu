@@ -30,6 +30,7 @@ import {
   resetAllPresetFeedersToMaster,
   subscribeToHubRecords,
   updateHubRecordDoc,
+  resetHubRecordsToDefaultDoc,
   subscribeToTeamLeaderNotes,
   addTeamLeaderNoteDoc,
   updateTeamLeaderNoteDoc,
@@ -772,9 +773,10 @@ export default function App() {
 
               {currentTab === 'hub' && (
                 <FeederHub 
-                  isAdmin={isAdmin} 
+                  isAdmin={isAdmin || userRole === 'team_leader'} 
                   hubRecords={hubRecords} 
                   onUpdateRecord={updateHubRecordDoc} 
+                  onResetRecords={resetHubRecordsToDefaultDoc}
                 />
               )}
 

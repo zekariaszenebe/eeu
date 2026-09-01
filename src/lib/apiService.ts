@@ -219,21 +219,51 @@ export async function resetAllPresetFeedersToMaster() {
 }
 
 export function subscribeToHubRecords(onUpdate: (items: HubRecord[]) => void) {
+  const mergeRecords = (incoming: HubRecord[] | null | undefined): HubRecord[] => {
+    const baseMap = new Map<number, HubRecord>();
+    HUB_RECORDS.forEach(r => baseMap.set(r.no, { ...r }));
+    if (Array.isArray(incoming)) {
+      incoming.forEach(r => {
+        if (r && typeof r.no === 'number') {
+          const existing = baseMap.get(r.no);
+          baseMap.set(r.no, existing ? { ...existing, ...r } : r);
+        }
+      });
+    }
+    return Array.from(baseMap.values()).sort((a, b) => (a.no || 0) - (b.no || 0));
+  };
+
   const fetchItems = () => {
     fetchApi('/api/hubRecords').then(data => {
-      onUpdate(data.length ? data : HUB_RECORDS);
-      setLocal('eeu-hub-records', data);
+      const merged = mergeRecords(data);
+      onUpdate(merged);
+      setLocal('eeu-hub-records', merged);
     }).catch(e => {
-      onUpdate(getLocal('eeu-hub-records', HUB_RECORDS));
+      const local = getLocal<HubRecord[]>('eeu-hub-records', HUB_RECORDS);
+      const merged = mergeRecords(local);
+      onUpdate(merged);
     });
   };
   fetchItems();
-  const interval = setInterval(fetchItems, 10000);
+  const interval = setInterval(fetchItems, 8000);
   return () => clearInterval(interval);
 }
 
 export async function updateHubRecordDoc(record: HubRecord) {
+  // Update local cache first to ensure immediate responsiveness
+  try {
+    const current = getLocal<HubRecord[]>('eeu-hub-records', HUB_RECORDS);
+    const updated = current.map(item => item.no === record.no ? { ...item, ...record } : item);
+    setLocal('eeu-hub-records', updated);
+  } catch {
+    // ignore
+  }
   await fetchApi(`/api/hubRecords/${record.no}`, { method: 'PUT', body: JSON.stringify(record) });
+}
+
+export async function resetHubRecordsToDefaultDoc() {
+  setLocal('eeu-hub-records', HUB_RECORDS);
+  await fetchApi('/api/hubRecords/reset', { method: 'POST' });
 }
 
 export function subscribeToTeamLeaderNotes(onUpdate: (items: TeamLeaderNote[]) => void) {

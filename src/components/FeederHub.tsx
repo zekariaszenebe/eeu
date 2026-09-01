@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { HUB_RECORDS, HubRecord } from '../data/hubData';
-import { Search, MapPin, Compass, User, CreditCard, Download, Building, ShieldAlert, ArrowUpDown, Copy, Check, Edit, X, Save, FileSpreadsheet } from 'lucide-react';
+import { Search, MapPin, Compass, User, CreditCard, Download, Building, ShieldAlert, ArrowUpDown, Copy, Check, Edit, X, Save, FileSpreadsheet, RotateCcw } from 'lucide-react';
 
 function HighlightedText({ text, search }: { text: string; search: string }) {
   if (!search || !search.trim()) {
@@ -63,9 +63,10 @@ interface FeederHubProps {
   isAdmin?: boolean;
   hubRecords?: HubRecord[];
   onUpdateRecord?: (item: HubRecord) => Promise<void>;
+  onResetRecords?: () => Promise<void>;
 }
 
-export function FeederHub({ isAdmin = false, hubRecords = HUB_RECORDS, onUpdateRecord }: FeederHubProps) {
+export function FeederHub({ isAdmin = false, hubRecords = HUB_RECORDS, onUpdateRecord, onResetRecords }: FeederHubProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState<string>('All');
   const [sortField, setSortField] = useState<keyof HubRecord>('no');
@@ -79,6 +80,7 @@ export function FeederHub({ isAdmin = false, hubRecords = HUB_RECORDS, onUpdateR
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [showSheetsInstructions, setShowSheetsInstructions] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   const handleCopyBp = (bp: string) => {
     navigator.clipboard.writeText(bp).then(() => {
@@ -223,8 +225,34 @@ export function FeederHub({ isAdmin = false, hubRecords = HUB_RECORDS, onUpdateR
             <h2 className="text-lg font-display font-black text-gray-900 dark:text-white tracking-tight">
               CSC Address
             </h2>
+            <span className="text-[11px] font-mono font-bold text-eeu-green bg-eeu-green/10 px-2.5 py-0.5 rounded-full">
+              {activeRecordsCount} Locations
+            </span>
           </div>
         </div>
+
+        {isAdmin && onResetRecords && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                if (window.confirm('Reset all CSC Address records to the default 30 locations? Any custom changes will be reset.')) {
+                  setIsResetting(true);
+                  try {
+                    await onResetRecords();
+                  } finally {
+                    setIsResetting(false);
+                  }
+                }
+              }}
+              disabled={isResetting}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+              title="Restore all default 30 CSC Address records"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
+              <span>{isResetting ? 'Restoring...' : 'Restore Defaults'}</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Success Toast */}

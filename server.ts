@@ -1,16 +1,23 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import { HUB_RECORDS } from "./src/data/hubData";
+import { INITIAL_FEEDERS_LIST, INITIAL_CUSTOMER_CONTACTS, INITIAL_INTERRUPTIONS } from "./src/data/mockData";
 
-// Mock In-Memory Database
+// Mock In-Memory Database initialized with full baseline data
 const db = {
-  interruptions: [] as any[],
+  interruptions: [...INITIAL_INTERRUPTIONS],
   notifications: [] as any[],
-  presetFeeders: [] as any[],
-  hubRecords: [] as any[],
+  presetFeeders: INITIAL_FEEDERS_LIST.map((f, idx) => ({ id: `feeder-${idx}`, feederStr: f })),
+  hubRecords: HUB_RECORDS.map(r => ({ ...r })),
   teamLeaderNotes: [] as any[],
-  customerContacts: [] as any[],
-  teamLeaders: [] as any[],
+  customerContacts: [...INITIAL_CUSTOMER_CONTACTS],
+  teamLeaders: [
+    { id: 'admin-1', username: 'admin', password: '@Eeu1234', name: 'System Administrator', district: 'Admin', role: 'admin', createdAt: new Date().toISOString() },
+    { id: 'agent-1', username: 'contactcenter', password: '@Eeu1234', name: 'Contact Center Agent', district: 'Team A', role: 'agent', createdAt: new Date().toISOString() },
+    { id: 'tl-1', username: 'teamleader', password: '@Eeu1234', name: 'Team Leader', district: 'Team D', role: 'team_leader', createdAt: new Date().toISOString() },
+    { id: 'tl-d', username: 'zz01641821', password: 'eeu1234', name: 'Zekarias Zenebe', district: 'Admin', role: 'admin', createdAt: new Date().toISOString() }
+  ] as any[],
   feedbacks: [] as any[]
 };
 
@@ -116,10 +123,30 @@ async function startServer() {
 
   // === Hub Records ===
   app.get("/api/hubRecords", (req, res) => {
+    // Ensure all 30 base records are always present
+    if (!db.hubRecords || db.hubRecords.length === 0) {
+      db.hubRecords = HUB_RECORDS.map(r => ({ ...r }));
+    } else if (db.hubRecords.length < HUB_RECORDS.length) {
+      const currentMap = new Map(db.hubRecords.map(r => [r.no.toString(), r]));
+      db.hubRecords = HUB_RECORDS.map(master => {
+        const found = currentMap.get(master.no.toString());
+        return found ? { ...master, ...found } : { ...master };
+      });
+    }
     res.json(db.hubRecords.sort((a, b) => (a.no || 0) - (b.no || 0)));
   });
 
   app.put("/api/hubRecords/:no", (req, res) => {
+    if (!db.hubRecords || db.hubRecords.length === 0) {
+      db.hubRecords = HUB_RECORDS.map(r => ({ ...r }));
+    } else if (db.hubRecords.length < HUB_RECORDS.length) {
+      const currentMap = new Map(db.hubRecords.map(r => [r.no.toString(), r]));
+      db.hubRecords = HUB_RECORDS.map(master => {
+        const found = currentMap.get(master.no.toString());
+        return found ? { ...master, ...found } : { ...master };
+      });
+    }
+
     const idx = db.hubRecords.findIndex(h => h.no.toString() === req.params.no.toString());
     if (idx !== -1) {
       db.hubRecords[idx] = { ...db.hubRecords[idx], ...req.body };
@@ -140,6 +167,11 @@ async function startServer() {
       }
     }
     res.json({ success: true });
+  });
+
+  app.post("/api/hubRecords/reset", (req, res) => {
+    db.hubRecords = HUB_RECORDS.map(r => ({ ...r }));
+    res.json({ success: true, records: db.hubRecords });
   });
 
   // === Team Leader Notes ===
