@@ -97,7 +97,7 @@ export function CustomerSmsGenerator() {
             </div>
             <div>
               <h2 className="font-display font-bold text-gray-950 dark:text-white text-base tracking-tight leading-tight flex items-center gap-2">
-                Customer SMS Generator
+                Complaint / Ticket Number
               </h2>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 font-sans">
                 Service request & complaint ticket notification
