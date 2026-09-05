@@ -6,7 +6,7 @@ import { INITIAL_FEEDERS_LIST, INITIAL_CUSTOMER_CONTACTS, INITIAL_INTERRUPTIONS 
 
 // Mock In-Memory Database initialized with full baseline data
 const db = {
-  interruptions: [...INITIAL_INTERRUPTIONS],
+  interruptions: [] as any[],
   notifications: [] as any[],
   presetFeeders: INITIAL_FEEDERS_LIST.map((f, idx) => ({ id: `feeder-${idx}`, feederStr: f })),
   hubRecords: HUB_RECORDS.map(r => ({ ...r })),

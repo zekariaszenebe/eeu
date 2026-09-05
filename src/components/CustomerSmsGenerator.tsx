@@ -298,7 +298,7 @@ export function SmartMeterTokenSmsGenerator() {
         <div className="flex items-center justify-between gap-3 border-b border-gray-150/60 dark:border-gray-800/60 pb-3">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-2xl bg-sky-500/10 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 flex items-center justify-center font-bold">
-              <Gauge className="w-4.5 h-4.5" />
+              <MessageSquare className="w-4.5 h-4.5" />
             </div>
             <div>
               <h2 className="font-display font-bold text-gray-950 dark:text-white text-base tracking-tight leading-tight flex items-center gap-2">
@@ -448,20 +448,6 @@ export function SmartMeterTokenSmsGenerator() {
 export default function SmsTicketGenerator() {
   return (
     <div id="sms-ticket-generator-tab" className="space-y-6 animate-in fade-in-40 duration-200">
-      {/* Top Banner / Header Card */}
-      <div className="glass-card rounded-3xl p-5 flex items-center justify-between gap-4 flex-wrap shadow-none">
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 dark:bg-emerald-950/40 text-eeu-green flex items-center justify-center font-bold">
-            <MessageSquare className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="font-display font-bold text-gray-950 dark:text-white text-lg tracking-tight leading-tight">
-              SMS Ticket & Token Generator
-            </h2>
-          </div>
-        </div>
-      </div>
-
       {/* Two-Column Grid for Generators */}
       <div id="call-center-sms-tools-section" className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* Left: Customer SMS Generator */}
