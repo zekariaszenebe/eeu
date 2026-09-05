@@ -3,6 +3,13 @@ import { INITIAL_FEEDERS_LIST, INITIAL_CUSTOMER_CONTACTS } from '../data/mockDat
 import { FEEDERS_VERSION } from '../data/feedersList';
 import { HubRecord, HUB_RECORDS } from '../data/hubData';
 
+export const DEFAULT_TEAM_LEADERS: TeamLeaderUser[] = [
+  { id: 'admin-1', username: 'admin', password: '@Eeu1234', name: 'System Administrator', district: 'Admin', role: 'admin', createdAt: new Date().toISOString() },
+  { id: 'agent-1', username: 'contactcenter', password: '@Eeu1234', name: 'Contact Center Agent', district: 'Team A', role: 'agent', createdAt: new Date().toISOString() },
+  { id: 'tl-1', username: 'teamleader', password: '@Eeu1234', name: 'Team Leader', district: 'Team D', role: 'team_leader', createdAt: new Date().toISOString() },
+  { id: 'tl-d', username: 'zz01641821', password: 'eeu1234', name: 'Zekarias Zenebe', district: 'Admin', role: 'admin', createdAt: new Date().toISOString() }
+];
+
 // Polyfill for API requests
 async function fetchApi(url: string, options?: RequestInit) {
   const res = await fetch(url, {
@@ -17,7 +24,7 @@ async function fetchApi(url: string, options?: RequestInit) {
 }
 
 // Local storage persistent fallback helpers
-function getLocal<T>(key: string, fallback: T): T {
+export function getLocal<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
   try {
     const raw = localStorage.getItem(key);
@@ -27,7 +34,7 @@ function getLocal<T>(key: string, fallback: T): T {
   }
 }
 
-function setLocal<T>(key: string, data: T) {
+export function setLocal<T>(key: string, data: T) {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(key, JSON.stringify(data));
@@ -37,12 +44,32 @@ function setLocal<T>(key: string, data: T) {
 }
 
 export async function seedInitialDataIfEmpty() {
-  const SEED_STORAGE_KEY = 'eeu-local-seeded-v5';
+  // Pre-seed local storage immediately for static hosting environments (like Cloudflare Pages)
+  if (typeof window !== 'undefined') {
+    const localTL = getLocal<TeamLeaderUser[]>('eeu-team-leaders', []);
+    if (!localTL || localTL.length === 0) {
+      setLocal('eeu-team-leaders', DEFAULT_TEAM_LEADERS);
+    }
+    const localHub = getLocal<HubRecord[]>('eeu-hub-records', []);
+    if (!localHub || localHub.length === 0) {
+      setLocal('eeu-hub-records', HUB_RECORDS);
+    }
+    const localContacts = getLocal<ContactItem[]>('eeu-customer-contacts', []);
+    if (!localContacts || localContacts.length === 0) {
+      setLocal('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS);
+    }
+    const localFeeders = getLocal<string[]>('eeu-feeders-list-v4', []);
+    if (!localFeeders || localFeeders.length === 0) {
+      setLocal('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
+    }
+  }
+
+  const SEED_STORAGE_KEY = 'eeu-local-seeded-v6';
   if (typeof window !== 'undefined' && localStorage.getItem(SEED_STORAGE_KEY)) {
     return;
   }
 
-  // Pre-seed API with defaults if they're empty
+  // Pre-seed API with defaults if backend server is available
   try {
     const presetRes = await fetchApi('/api/presetFeeders');
     if (presetRes.length === 0) {
@@ -56,18 +83,12 @@ export async function seedInitialDataIfEmpty() {
 
     const teamLeadersRes = await fetchApi('/api/teamLeaders');
     if (teamLeadersRes.length === 0) {
-      const defaultTeamLeaders: TeamLeaderUser[] = [
-        { id: 'admin-1', username: 'admin', password: '@Eeu1234', name: 'System Administrator', district: 'Admin', role: 'admin', createdAt: new Date().toISOString() },
-        { id: 'agent-1', username: 'contactcenter', password: '@Eeu1234', name: 'Contact Center Agent', district: 'Team A', role: 'agent', createdAt: new Date().toISOString() },
-        { id: 'tl-1', username: 'teamleader', password: '@Eeu1234', name: 'Team Leader', district: 'Team D', role: 'team_leader', createdAt: new Date().toISOString() },
-        { id: 'tl-d', username: 'zz01641821', password: 'eeu1234', name: 'Zekarias Zenebe', district: 'Admin', role: 'admin', createdAt: new Date().toISOString() }
-      ];
-      for (const tl of defaultTeamLeaders) {
+      for (const tl of DEFAULT_TEAM_LEADERS) {
         await fetchApi('/api/teamLeaders', { method: 'POST', body: JSON.stringify(tl) });
       }
     }
   } catch(e) {
-     // Silently ignore seeding errors to prevent console spam when Supabase is disconnected or misconfigured.
+     // Silently ignore if running on static Cloudflare Pages where backend server isn't running
   }
 
   if (typeof window !== 'undefined') {
@@ -138,7 +159,11 @@ export async function addInterruptionDoc(entry: Omit<FeederInterruption, 'id' | 
     lastUpdated: timestampStr
   };
 
-  await fetchApi('/api/interruptions', { method: 'POST', body: JSON.stringify(record) });
+  // Update localStorage immediately
+  try {
+    const existing = getLocal<FeederInterruption[]>('eeu-interruptions', []);
+    setLocal('eeu-interruptions', [record, ...existing.filter(i => i.id !== newId)]);
+  } catch {}
 
   const notiId = `n-${Date.now()}-${suffix}`;
   const newNoti: SystemNotification = {
@@ -151,7 +176,17 @@ export async function addInterruptionDoc(entry: Omit<FeederInterruption, 'id' | 
     read: false
   };
 
-  await fetchApi('/api/notifications', { method: 'POST', body: JSON.stringify(newNoti) });
+  try {
+    const existingNotis = getLocal<SystemNotification[]>('eeu-notifications', []);
+    setLocal('eeu-notifications', [newNoti, ...existingNotis]);
+  } catch {}
+
+  try {
+    await fetchApi('/api/interruptions', { method: 'POST', body: JSON.stringify(record) });
+    await fetchApi('/api/notifications', { method: 'POST', body: JSON.stringify(newNoti) });
+  } catch (e) {
+    console.warn('Backend /api/interruptions not available. Saved locally.');
+  }
 
   return record;
 }
@@ -162,8 +197,13 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
   });
 
   const merged = { ...existingRecord, ...entry, lastUpdated: timestampStr };
-  await fetchApi(`/api/interruptions/${id}`, { method: 'PUT', body: JSON.stringify(merged) });
 
+  try {
+    const existing = getLocal<FeederInterruption[]>('eeu-interruptions', []);
+    setLocal('eeu-interruptions', existing.map(i => i.id === id ? { ...i, ...merged } : i));
+  } catch {}
+
+  let changeNoti: SystemNotification | null = null;
   if (entry.status && existingRecord?.status && entry.status !== existingRecord.status) {
     const typeVal = entry.status === InterruptionStatus.RESTORED ? 'resolve' : 'update';
     const titleText = entry.status === InterruptionStatus.RESTORED ? 'Feeder Line Restored' : 'Operational Status Changed';
@@ -172,7 +212,7 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
       : `${merged.feederName} reassessed as ${entry.status}. Details: ${entry.remark || merged.remark}`;
 
     const notiId = `n-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    const changeNoti: SystemNotification = {
+    changeNoti = {
       id: notiId,
       feederId: id,
       type: typeVal,
@@ -182,40 +222,101 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
       read: false
     };
 
-    await fetchApi('/api/notifications', { method: 'POST', body: JSON.stringify(changeNoti) });
+    try {
+      const existingNotis = getLocal<SystemNotification[]>('eeu-notifications', []);
+      setLocal('eeu-notifications', [changeNoti, ...existingNotis]);
+    } catch {}
+  }
+
+  try {
+    await fetchApi(`/api/interruptions/${id}`, { method: 'PUT', body: JSON.stringify(merged) });
+    if (changeNoti) {
+      await fetchApi('/api/notifications', { method: 'POST', body: JSON.stringify(changeNoti) });
+    }
+  } catch (e) {
+    console.warn('Backend /api/interruptions not available. Updated locally.');
   }
 }
 
 export async function deleteInterruptionDoc(id: string) {
-  await fetchApi(`/api/interruptions/${id}`, { method: 'DELETE' });
+  try {
+    const existing = getLocal<FeederInterruption[]>('eeu-interruptions', []);
+    setLocal('eeu-interruptions', existing.filter(i => i.id !== id));
+  } catch {}
+
+  try {
+    await fetchApi(`/api/interruptions/${id}`, { method: 'DELETE' });
+  } catch (e) {
+    console.warn('Backend /api/interruptions not available. Deleted locally.');
+  }
 }
 
 export async function markAllNotificationsAsReadDoc() {
-  await fetchApi('/api/notifications/read-all', { method: 'PUT' });
+  try {
+    const existing = getLocal<SystemNotification[]>('eeu-notifications', []);
+    setLocal('eeu-notifications', existing.map(n => ({ ...n, read: true })));
+  } catch {}
+  try {
+    await fetchApi('/api/notifications/read-all', { method: 'PUT' });
+  } catch (e) {}
 }
 
 export async function markOneNotificationAsReadDoc(id: string) {
-  await fetchApi(`/api/notifications/${id}/read`, { method: 'PUT' });
+  try {
+    const existing = getLocal<SystemNotification[]>('eeu-notifications', []);
+    setLocal('eeu-notifications', existing.map(n => n.id === id ? { ...n, read: true } : n));
+  } catch {}
+  try {
+    await fetchApi(`/api/notifications/${id}/read`, { method: 'PUT' });
+  } catch (e) {}
 }
 
 export async function clearAllNotificationsDoc() {
-  await fetchApi('/api/notifications', { method: 'DELETE' });
+  try {
+    setLocal('eeu-notifications', []);
+  } catch {}
+  try {
+    await fetchApi('/api/notifications', { method: 'DELETE' });
+  } catch (e) {}
 }
 
 export async function addPresetFeederDoc(feederStr: string) {
-  await fetchApi('/api/presetFeeders', { method: 'POST', body: JSON.stringify({ id: `feeder-${Date.now()}`, feederStr }) });
+  try {
+    const existing = getLocal<string[]>('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
+    setLocal('eeu-feeders-list-v4', Array.from(new Set([...existing, feederStr])).sort());
+  } catch {}
+  try {
+    await fetchApi('/api/presetFeeders', { method: 'POST', body: JSON.stringify({ id: `feeder-${Date.now()}`, feederStr }) });
+  } catch (e) {}
 }
 
 export async function deletePresetFeederDoc(feederStr: string) {
-  await fetchApi(`/api/presetFeeders/${encodeURIComponent(feederStr)}`, { method: 'DELETE' });
+  try {
+    const existing = getLocal<string[]>('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
+    setLocal('eeu-feeders-list-v4', existing.filter(f => f !== feederStr));
+  } catch {}
+  try {
+    await fetchApi(`/api/presetFeeders/${encodeURIComponent(feederStr)}`, { method: 'DELETE' });
+  } catch (e) {}
 }
 
 export async function updatePresetFeederDoc(oldFeederStr: string, newFeederStr: string) {
-  await fetchApi('/api/presetFeeders', { method: 'PUT', body: JSON.stringify({ oldFeederStr, newFeederStr }) });
+  try {
+    const existing = getLocal<string[]>('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
+    setLocal('eeu-feeders-list-v4', existing.map(f => f === oldFeederStr ? newFeederStr : f));
+  } catch {}
+  try {
+    await fetchApi('/api/presetFeeders', { method: 'PUT', body: JSON.stringify({ oldFeederStr, newFeederStr }) });
+  } catch (e) {}
 }
 
 export async function resetAllPresetFeedersToMaster() {
-  await fetchApi('/api/presetFeeders/bulk', { method: 'POST', body: JSON.stringify({ feeders: INITIAL_FEEDERS_LIST }) });
+  try {
+    setLocal('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
+  } catch {}
+  try {
+    await fetchApi('/api/presetFeeders/bulk', { method: 'POST', body: JSON.stringify({ feeders: INITIAL_FEEDERS_LIST }) });
+  } catch (e) {}
 }
 
 export function subscribeToHubRecords(onUpdate: (items: HubRecord[]) => void) {
@@ -258,12 +359,20 @@ export async function updateHubRecordDoc(record: HubRecord) {
   } catch {
     // ignore
   }
-  await fetchApi(`/api/hubRecords/${record.no}`, { method: 'PUT', body: JSON.stringify(record) });
+  try {
+    await fetchApi(`/api/hubRecords/${record.no}`, { method: 'PUT', body: JSON.stringify(record) });
+  } catch (e) {
+    console.warn('Backend /api/hubRecords not available. Saved locally.');
+  }
 }
 
 export async function resetHubRecordsToDefaultDoc() {
   setLocal('eeu-hub-records', HUB_RECORDS);
-  await fetchApi('/api/hubRecords/reset', { method: 'POST' });
+  try {
+    await fetchApi('/api/hubRecords/reset', { method: 'POST' });
+  } catch (e) {
+    console.warn('Backend /api/hubRecords/reset not available.');
+  }
 }
 
 export function subscribeToTeamLeaderNotes(onUpdate: (items: TeamLeaderNote[]) => void) {
@@ -287,7 +396,15 @@ export async function addTeamLeaderNoteDoc(content: string, author: string, isUr
   });
 
   const record: TeamLeaderNote = { id: cleanId, content, author: author || "Team Leader", timestamp: timestampStr, isUrgent };
-  await fetchApi('/api/teamLeaderNotes', { method: 'POST', body: JSON.stringify(record) });
+  try {
+    const existing = getLocal<TeamLeaderNote[]>('eeu-team-leader-notes', []);
+    setLocal('eeu-team-leader-notes', [record, ...existing]);
+  } catch {}
+  try {
+    await fetchApi('/api/teamLeaderNotes', { method: 'POST', body: JSON.stringify(record) });
+  } catch (e) {
+    console.warn('Backend /api/teamLeaderNotes not available. Saved locally.');
+  }
   return record;
 }
 
@@ -295,15 +412,38 @@ export async function updateTeamLeaderNoteDoc(id: string, content: string, isUrg
   const timestampStr = new Date().toLocaleString('en-US', {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true
   });
-  await fetchApi(`/api/teamLeaderNotes/${id}`, { method: 'PUT', body: JSON.stringify({ content, isUrgent, timestamp: timestampStr }) });
+  try {
+    const existing = getLocal<TeamLeaderNote[]>('eeu-team-leader-notes', []);
+    setLocal('eeu-team-leader-notes', existing.map(n => n.id === id ? { ...n, content, isUrgent, timestamp: timestampStr } : n));
+  } catch {}
+  try {
+    await fetchApi(`/api/teamLeaderNotes/${id}`, { method: 'PUT', body: JSON.stringify({ content, isUrgent, timestamp: timestampStr }) });
+  } catch (e) {
+    console.warn('Backend /api/teamLeaderNotes not available. Updated locally.');
+  }
 }
 
 export async function deleteTeamLeaderNoteDoc(id: string) {
-  await fetchApi(`/api/teamLeaderNotes/${id}`, { method: 'DELETE' });
+  try {
+    const existing = getLocal<TeamLeaderNote[]>('eeu-team-leader-notes', []);
+    setLocal('eeu-team-leader-notes', existing.filter(n => n.id !== id));
+  } catch {}
+  try {
+    await fetchApi(`/api/teamLeaderNotes/${id}`, { method: 'DELETE' });
+  } catch (e) {
+    console.warn('Backend /api/teamLeaderNotes not available. Deleted locally.');
+  }
 }
 
 export async function clearTeamLeaderNotes() {
-  await fetchApi('/api/teamLeaderNotes', { method: 'DELETE' });
+  try {
+    setLocal('eeu-team-leader-notes', []);
+  } catch {}
+  try {
+    await fetchApi('/api/teamLeaderNotes', { method: 'DELETE' });
+  } catch (e) {
+    console.warn('Backend /api/teamLeaderNotes not available. Cleared locally.');
+  }
 }
 
 export function subscribeToCustomerContacts(onUpdate: (items: ContactItem[]) => void) {
@@ -330,26 +470,67 @@ export function subscribeToCustomerContacts(onUpdate: (items: ContactItem[]) => 
 export async function addCustomerContactDoc(item: Omit<ContactItem, 'id'>) {
   const newId = `cc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
   const record: ContactItem = { ...item, id: newId };
-  await fetchApi('/api/customerContacts', { method: 'POST', body: JSON.stringify(record) });
+  try {
+    const existing = getLocal<ContactItem[]>('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS);
+    setLocal('eeu-customer-contacts', [...existing, record]);
+  } catch {}
+  try {
+    await fetchApi('/api/customerContacts', { method: 'POST', body: JSON.stringify(record) });
+  } catch (e) {
+    console.warn('Backend /api/customerContacts not available. Saved locally.');
+  }
   return record;
 }
 
 export async function updateCustomerContactDoc(item: ContactItem) {
-  await fetchApi(`/api/customerContacts/${item.id}`, { method: 'PUT', body: JSON.stringify(item) });
+  try {
+    const existing = getLocal<ContactItem[]>('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS);
+    setLocal('eeu-customer-contacts', existing.map(c => c.id === item.id ? item : c));
+  } catch {}
+  try {
+    await fetchApi(`/api/customerContacts/${item.id}`, { method: 'PUT', body: JSON.stringify(item) });
+  } catch (e) {
+    console.warn('Backend /api/customerContacts not available. Updated locally.');
+  }
 }
 
 export async function deleteCustomerContactDoc(id: string) {
-  await fetchApi(`/api/customerContacts/${id}`, { method: 'DELETE' });
+  try {
+    const existing = getLocal<ContactItem[]>('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS);
+    setLocal('eeu-customer-contacts', existing.filter(c => c.id !== id));
+  } catch {}
+  try {
+    await fetchApi(`/api/customerContacts/${id}`, { method: 'DELETE' });
+  } catch (e) {
+    console.warn('Backend /api/customerContacts not available. Deleted locally.');
+  }
 }
 
 export function subscribeToTeamLeaders(onUpdate: (items: TeamLeaderUser[]) => void) {
+  const getInitial = (): TeamLeaderUser[] => {
+    const stored = getLocal<TeamLeaderUser[]>('eeu-team-leaders', []);
+    if (!stored || stored.length === 0) {
+      setLocal('eeu-team-leaders', DEFAULT_TEAM_LEADERS);
+      return DEFAULT_TEAM_LEADERS;
+    }
+    return stored;
+  };
+
   const fetchItems = () => {
     fetchApi('/api/teamLeaders').then(data => {
-      data.sort((a: any, b: any) => a.name.localeCompare(b.name));
-      onUpdate(data);
-      setLocal('eeu-team-leaders', data);
+      if (Array.isArray(data) && data.length > 0) {
+        data.sort((a: any, b: any) => a.name.localeCompare(b.name));
+        onUpdate(data);
+        setLocal('eeu-team-leaders', data);
+      } else {
+        const fallback = getInitial();
+        fallback.sort((a, b) => a.name.localeCompare(b.name));
+        onUpdate(fallback);
+      }
     }).catch(e => {
-      onUpdate(getLocal('eeu-team-leaders', []));
+      const fallback = getInitial();
+      fallback.sort((a, b) => a.name.localeCompare(b.name));
+      onUpdate(fallback);
     });
   };
   fetchItems();
@@ -359,33 +540,77 @@ export function subscribeToTeamLeaders(onUpdate: (items: TeamLeaderUser[]) => vo
 
 export async function addTeamLeaderDoc(item: Omit<TeamLeaderUser, 'id' | 'createdAt'>) {
   const newId = `tl-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-  const record: any = {
+  const record: TeamLeaderUser = {
     id: newId,
     username: item.username.trim(),
     password: item.password.trim(),
     name: item.name.trim(),
+    district: item.district || 'Team A',
+    role: item.role || 'team_leader',
     createdAt: new Date().toISOString()
   };
-  if (item.district) record.district = item.district;
   if (typeof item.mustChangePassword === 'boolean') record.mustChangePassword = item.mustChangePassword;
-  await fetchApi('/api/teamLeaders', { method: 'POST', body: JSON.stringify(record) });
-  return record as TeamLeaderUser;
+
+  // Persist directly to localStorage first
+  try {
+    const existing = getLocal<TeamLeaderUser[]>('eeu-team-leaders', DEFAULT_TEAM_LEADERS);
+    const updated = [...existing.filter(tl => tl.id !== record.id), record];
+    setLocal('eeu-team-leaders', updated);
+  } catch (err) {
+    console.error('Failed to save team leader to localStorage:', err);
+  }
+
+  // Sync to backend API if available
+  try {
+    await fetchApi('/api/teamLeaders', { method: 'POST', body: JSON.stringify(record) });
+  } catch (e) {
+    console.warn('Backend /api/teamLeaders not available (e.g. running on Cloudflare Pages). Saved to local storage.');
+  }
+
+  return record;
 }
 
 export async function updateTeamLeaderDoc(item: TeamLeaderUser) {
-  const record: any = {
+  const record: TeamLeaderUser = {
+    id: item.id,
     username: item.username.trim(),
     password: item.password.trim(),
     name: item.name.trim(),
+    district: item.district || 'Team A',
+    role: item.role || 'team_leader',
     createdAt: item.createdAt || new Date().toISOString()
   };
-  if (item.district) record.district = item.district;
   if (typeof item.mustChangePassword === 'boolean') record.mustChangePassword = item.mustChangePassword;
-  await fetchApi(`/api/teamLeaders/${item.id}`, { method: 'PUT', body: JSON.stringify(record) });
+
+  try {
+    const existing = getLocal<TeamLeaderUser[]>('eeu-team-leaders', DEFAULT_TEAM_LEADERS);
+    const updated = existing.map(tl => tl.id === item.id ? { ...tl, ...record } : tl);
+    setLocal('eeu-team-leaders', updated);
+  } catch (err) {
+    console.error('Failed to update team leader in localStorage:', err);
+  }
+
+  try {
+    await fetchApi(`/api/teamLeaders/${item.id}`, { method: 'PUT', body: JSON.stringify(record) });
+  } catch (e) {
+    console.warn('Backend /api/teamLeaders not available. Updated in local storage.');
+  }
 }
 
 export async function deleteTeamLeaderDoc(id: string) {
-  await fetchApi(`/api/teamLeaders/${id}`, { method: 'DELETE' });
+  try {
+    const existing = getLocal<TeamLeaderUser[]>('eeu-team-leaders', DEFAULT_TEAM_LEADERS);
+    const updated = existing.filter(tl => tl.id !== id);
+    setLocal('eeu-team-leaders', updated);
+  } catch (err) {
+    console.error('Failed to delete team leader from localStorage:', err);
+  }
+
+  try {
+    await fetchApi(`/api/teamLeaders/${id}`, { method: 'DELETE' });
+  } catch (e) {
+    console.warn('Backend /api/teamLeaders not available. Deleted from local storage.');
+  }
 }
 
 export interface FeedbackRecord {

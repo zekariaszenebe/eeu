@@ -10,7 +10,7 @@ import { useInterruptions } from './context/InterruptionContext';
 
 // Types and mock data
 import { FeederInterruption, InterruptionType, InterruptionStatus, SystemNotification, TeamLeaderNote, ContactItem, TeamLeaderUser, UserRole } from './types';
-import { INITIAL_INTERRUPTIONS, INITIAL_NOTIFICATIONS, INITIAL_DISTRICTS, INITIAL_FEEDERS_LIST } from './data/mockData';
+import { INITIAL_INTERRUPTIONS, INITIAL_NOTIFICATIONS, INITIAL_DISTRICTS, INITIAL_FEEDERS_LIST, INITIAL_CUSTOMER_CONTACTS } from './data/mockData';
 import { FEEDERS_VERSION } from './data/feedersList';
 
 // Database Services
@@ -43,9 +43,11 @@ import {
   subscribeToTeamLeaders,
   addTeamLeaderDoc,
   updateTeamLeaderDoc,
-  deleteTeamLeaderDoc
+  deleteTeamLeaderDoc,
+  DEFAULT_TEAM_LEADERS,
+  getLocal
 } from './lib/apiService';
-import { HubRecord } from './data/hubData';
+import { HubRecord, HUB_RECORDS } from './data/hubData';
 
 // Subcomponents
 import Sidebar from './components/Sidebar';
@@ -133,10 +135,18 @@ export default function App() {
     return INITIAL_FEEDERS_LIST;
   });
 
-  const [hubRecords, setHubRecords] = useState<HubRecord[]>([]);
-  const [teamLeaderNotes, setTeamLeaderNotes] = useState<TeamLeaderNote[]>([]);
-  const [customerContacts, setCustomerContacts] = useState<ContactItem[]>([]);
-  const [teamLeaders, setTeamLeaders] = useState<TeamLeaderUser[]>([]);
+  const [hubRecords, setHubRecords] = useState<HubRecord[]>(() => {
+    return getLocal<HubRecord[]>('eeu-hub-records', HUB_RECORDS);
+  });
+  const [teamLeaderNotes, setTeamLeaderNotes] = useState<TeamLeaderNote[]>(() => {
+    return getLocal<TeamLeaderNote[]>('eeu-team-leader-notes', []);
+  });
+  const [customerContacts, setCustomerContacts] = useState<ContactItem[]>(() => {
+    return getLocal<ContactItem[]>('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS);
+  });
+  const [teamLeaders, setTeamLeaders] = useState<TeamLeaderUser[]>(() => {
+    return getLocal<TeamLeaderUser[]>('eeu-team-leaders', DEFAULT_TEAM_LEADERS);
+  });
 
   // 3. User Authentication & Tab routing
   const [isWebLoggedIn, setIsWebLoggedIn] = useState<boolean>(() => {
