@@ -2,6 +2,7 @@ import { FeederInterruption, SystemNotification, InterruptionStatus, Interruptio
 import { INITIAL_FEEDERS_LIST, INITIAL_CUSTOMER_CONTACTS } from '../data/mockData';
 import { FEEDERS_VERSION } from '../data/feedersList';
 import { HubRecord, HUB_RECORDS } from '../data/hubData';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 export const DEFAULT_TEAM_LEADERS: TeamLeaderUser[] = [
   { id: 'admin-1', username: 'admin', password: '@Eeu1234', name: 'System Administrator', district: 'Admin', role: 'admin', createdAt: new Date().toISOString() },
@@ -9,6 +10,19 @@ export const DEFAULT_TEAM_LEADERS: TeamLeaderUser[] = [
   { id: 'tl-1', username: 'teamleader', password: '@Eeu1234', name: 'Team Leader', district: 'Team D', role: 'team_leader', createdAt: new Date().toISOString() },
   { id: 'tl-d', username: 'zz01641821', password: 'eeu1234', name: 'Zekarias Zenebe', district: 'Admin', role: 'admin', createdAt: new Date().toISOString() }
 ];
+
+// Helper to notify UI if RLS policy needs enabling
+function notifyIfRlsError(table: string, error: any) {
+  if (!error) return;
+  console.warn(`[Supabase ${table} Error]:`, error);
+  if (error.code === '42501' || error.message?.includes('row-level security')) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('supabase-rls-notice', {
+        detail: { table, message: error.message }
+      }));
+    }
+  }
+}
 
 // Polyfill for API requests
 async function fetchApi(url: string, options?: RequestInit) {
@@ -44,7 +58,6 @@ export function setLocal<T>(key: string, data: T) {
 }
 
 export async function seedInitialDataIfEmpty() {
-  // Pre-seed local storage immediately for static hosting environments (like Cloudflare Pages)
   if (typeof window !== 'undefined') {
     const localTL = getLocal<TeamLeaderUser[]>('eeu-team-leaders', []);
     if (!localTL || localTL.length === 0) {
@@ -64,12 +77,23 @@ export async function seedInitialDataIfEmpty() {
     }
   }
 
-  const SEED_STORAGE_KEY = 'eeu-local-seeded-v6';
+  // Pre-seed Supabase team leaders if table is empty
+  if (isSupabaseConfigured) {
+    try {
+      const { data: existingTL, error } = await supabase.from('teamLeaders').select('id').limit(1);
+      if (!error && (!existingTL || existingTL.length === 0)) {
+        await supabase.from('teamLeaders').insert(DEFAULT_TEAM_LEADERS);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const SEED_STORAGE_KEY = 'eeu-local-seeded-v7';
   if (typeof window !== 'undefined' && localStorage.getItem(SEED_STORAGE_KEY)) {
     return;
   }
 
-  // Pre-seed API with defaults if backend server is available
   try {
     const presetRes = await fetchApi('/api/presetFeeders');
     if (presetRes.length === 0) {
@@ -87,8 +111,8 @@ export async function seedInitialDataIfEmpty() {
         await fetchApi('/api/teamLeaders', { method: 'POST', body: JSON.stringify(tl) });
       }
     }
-  } catch(e) {
-     // Silently ignore if running on static Cloudflare Pages where backend server isn't running
+  } catch {
+    // Silently ignore if running on static Cloudflare Pages
   }
 
   if (typeof window !== 'undefined') {
@@ -96,47 +120,91 @@ export async function seedInitialDataIfEmpty() {
   }
 }
 
+// ==========================================
+// 1. FEEDER INTERRUPTIONS (SUPABASE + REALTIME)
+// ==========================================
+
 export function subscribeToInterruptions(onUpdate: (items: FeederInterruption[]) => void) {
-  const fetchItems = () => {
-    fetchApi('/api/interruptions').then(data => {
-      onUpdate(data);
-      setLocal('eeu-interruptions', data);
-    }).catch(e => {
-      onUpdate(getLocal('eeu-interruptions', []));
-    });
-  };
-  fetchItems();
-  const interval = setInterval(fetchItems, 5000);
-  return () => clearInterval(interval);
-}
+  // 1. Immediately emit cached data for instant render
+  const cached = getLocal<FeederInterruption[]>('eeu-interruptions', []);
+  if (cached && cached.length > 0) {
+    onUpdate(cached);
+  }
 
-export function subscribeToNotifications(onUpdate: (items: SystemNotification[]) => void) {
-  const fetchItems = () => {
-    fetchApi('/api/notifications').then(data => {
-      onUpdate(data);
-      setLocal('eeu-notifications', data);
-    }).catch(e => {
-      onUpdate(getLocal('eeu-notifications', []));
-    });
-  };
-  fetchItems();
-  const interval = setInterval(fetchItems, 5000);
-  return () => clearInterval(interval);
-}
+  const fetchSupabase = async () => {
+    if (!isSupabaseConfigured) return false;
+    try {
+      const { data, error } = await supabase
+        .from('interruptions')
+        .select('*');
 
-export function subscribeToFeedersList(onUpdate: (items: string[]) => void) {
-  const fetchItems = () => {
-    fetchApi('/api/presetFeeders').then(data => {
-      const merged = Array.from(new Set([...INITIAL_FEEDERS_LIST, ...data])).sort();
-      onUpdate(merged);
-      setLocal('eeu-feeders-list-v4', merged);
-    }).catch(e => {
-      onUpdate(getLocal('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST));
-    });
+      if (!error && Array.isArray(data)) {
+        onUpdate(data);
+        setLocal('eeu-interruptions', data);
+        return true;
+      }
+      if (error) {
+        notifyIfRlsError('interruptions', error);
+      }
+    } catch (err) {
+      console.warn('Supabase fetch error for interruptions:', err);
+    }
+    return false;
   };
-  fetchItems();
-  const interval = setInterval(fetchItems, 10000);
-  return () => clearInterval(interval);
+
+  const fetchFallback = () => {
+    fetchApi('/api/interruptions')
+      .then(data => {
+        if (Array.isArray(data)) {
+          onUpdate(data);
+          setLocal('eeu-interruptions', data);
+        }
+      })
+      .catch(() => {
+        onUpdate(getLocal('eeu-interruptions', []));
+      });
+  };
+
+  // Initial load
+  fetchSupabase().then(success => {
+    if (!success) fetchFallback();
+  });
+
+  // Setup Supabase Realtime channel with unique instance topic to prevent reuse collisions
+  let channel: any = null;
+  if (isSupabaseConfigured) {
+    try {
+      const channelId = `realtime-interruptions-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      channel = supabase
+        .channel(channelId)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'interruptions' },
+          () => {
+            fetchSupabase();
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime subscription failed for interruptions, using polling:', err);
+    }
+  }
+
+  // Periodic polling fallback every 6 seconds to ensure cross-tab & cross-device freshness
+  const interval = setInterval(() => {
+    fetchSupabase().then(success => {
+      if (!success) fetchFallback();
+    });
+  }, 6000);
+
+  return () => {
+    clearInterval(interval);
+    if (channel) {
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+    }
+  };
 }
 
 export async function addInterruptionDoc(entry: Omit<FeederInterruption, 'id' | 'lastUpdated'>, customId?: string) {
@@ -159,7 +227,7 @@ export async function addInterruptionDoc(entry: Omit<FeederInterruption, 'id' | 
     lastUpdated: timestampStr
   };
 
-  // Update localStorage immediately
+  // 1. Update localStorage immediately for instantaneous UI update
   try {
     const existing = getLocal<FeederInterruption[]>('eeu-interruptions', []);
     setLocal('eeu-interruptions', [record, ...existing.filter(i => i.id !== newId)]);
@@ -181,11 +249,25 @@ export async function addInterruptionDoc(entry: Omit<FeederInterruption, 'id' | 
     setLocal('eeu-notifications', [newNoti, ...existingNotis]);
   } catch {}
 
+  // 2. Save directly to Supabase
+  if (isSupabaseConfigured) {
+    try {
+      const { error: insErr } = await supabase.from('interruptions').insert(record);
+      notifyIfRlsError('interruptions', insErr);
+
+      const { error: notiErr } = await supabase.from('notifications').insert(newNoti);
+      notifyIfRlsError('notifications', notiErr);
+    } catch (e) {
+      console.error('Supabase write error:', e);
+    }
+  }
+
+  // 3. Background sync to local Express server if running
   try {
     await fetchApi('/api/interruptions', { method: 'POST', body: JSON.stringify(record) });
     await fetchApi('/api/notifications', { method: 'POST', body: JSON.stringify(newNoti) });
-  } catch (e) {
-    console.warn('Backend /api/interruptions not available. Saved locally.');
+  } catch {
+    // Expected on Cloudflare Pages static hosting
   }
 
   return record;
@@ -198,6 +280,7 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
 
   const merged = { ...existingRecord, ...entry, lastUpdated: timestampStr };
 
+  // 1. Update localStorage immediately
   try {
     const existing = getLocal<FeederInterruption[]>('eeu-interruptions', []);
     setLocal('eeu-interruptions', existing.map(i => i.id === id ? { ...i, ...merged } : i));
@@ -228,13 +311,29 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
     } catch {}
   }
 
+  // 2. Update Supabase
+  if (isSupabaseConfigured) {
+    try {
+      const { error: updErr } = await supabase.from('interruptions').update(merged).eq('id', id);
+      notifyIfRlsError('interruptions', updErr);
+
+      if (changeNoti) {
+        const { error: notiErr } = await supabase.from('notifications').insert(changeNoti);
+        notifyIfRlsError('notifications', notiErr);
+      }
+    } catch (e) {
+      console.error('Supabase update error:', e);
+    }
+  }
+
+  // 3. Fallback to Express backend if running
   try {
     await fetchApi(`/api/interruptions/${id}`, { method: 'PUT', body: JSON.stringify(merged) });
     if (changeNoti) {
       await fetchApi('/api/notifications', { method: 'POST', body: JSON.stringify(changeNoti) });
     }
-  } catch (e) {
-    console.warn('Backend /api/interruptions not available. Updated locally.');
+  } catch {
+    // Expected on Cloudflare Pages static hosting
   }
 }
 
@@ -244,11 +343,89 @@ export async function deleteInterruptionDoc(id: string) {
     setLocal('eeu-interruptions', existing.filter(i => i.id !== id));
   } catch {}
 
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase.from('interruptions').delete().eq('id', id);
+      notifyIfRlsError('interruptions', error);
+    } catch (e) {
+      console.error('Supabase delete error:', e);
+    }
+  }
+
   try {
     await fetchApi(`/api/interruptions/${id}`, { method: 'DELETE' });
-  } catch (e) {
-    console.warn('Backend /api/interruptions not available. Deleted locally.');
+  } catch {
+    // Expected on Cloudflare Pages static hosting
   }
+}
+
+// ==========================================
+// 2. NOTIFICATIONS (SUPABASE + REALTIME)
+// ==========================================
+
+export function subscribeToNotifications(onUpdate: (items: SystemNotification[]) => void) {
+  const cached = getLocal<SystemNotification[]>('eeu-notifications', []);
+  if (cached && cached.length > 0) {
+    onUpdate(cached);
+  }
+
+  const fetchSupabase = async () => {
+    if (!isSupabaseConfigured) return false;
+    try {
+      const { data, error } = await supabase.from('notifications').select('*');
+      if (!error && Array.isArray(data)) {
+        onUpdate(data);
+        setLocal('eeu-notifications', data);
+        return true;
+      }
+    } catch {}
+    return false;
+  };
+
+  const fetchFallback = () => {
+    fetchApi('/api/notifications')
+      .then(data => {
+        onUpdate(data);
+        setLocal('eeu-notifications', data);
+      })
+      .catch(() => {
+        onUpdate(getLocal('eeu-notifications', []));
+      });
+  };
+
+  fetchSupabase().then(success => {
+    if (!success) fetchFallback();
+  });
+
+  let channel: any = null;
+  if (isSupabaseConfigured) {
+    try {
+      const channelId = `realtime-notifications-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      channel = supabase
+        .channel(channelId)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
+          fetchSupabase();
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime subscription failed for notifications, using polling:', err);
+    }
+  }
+
+  const interval = setInterval(() => {
+    fetchSupabase().then(success => {
+      if (!success) fetchFallback();
+    });
+  }, 6000);
+
+  return () => {
+    clearInterval(interval);
+    if (channel) {
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+    }
+  };
 }
 
 export async function markAllNotificationsAsReadDoc() {
@@ -256,9 +433,16 @@ export async function markAllNotificationsAsReadDoc() {
     const existing = getLocal<SystemNotification[]>('eeu-notifications', []);
     setLocal('eeu-notifications', existing.map(n => ({ ...n, read: true })));
   } catch {}
+
+  if (isSupabaseConfigured) {
+    try {
+      await supabase.from('notifications').update({ read: true }).neq('id', '');
+    } catch {}
+  }
+
   try {
     await fetchApi('/api/notifications/read-all', { method: 'PUT' });
-  } catch (e) {}
+  } catch {}
 }
 
 export async function markOneNotificationAsReadDoc(id: string) {
@@ -266,18 +450,51 @@ export async function markOneNotificationAsReadDoc(id: string) {
     const existing = getLocal<SystemNotification[]>('eeu-notifications', []);
     setLocal('eeu-notifications', existing.map(n => n.id === id ? { ...n, read: true } : n));
   } catch {}
+
+  if (isSupabaseConfigured) {
+    try {
+      await supabase.from('notifications').update({ read: true }).eq('id', id);
+    } catch {}
+  }
+
   try {
     await fetchApi(`/api/notifications/${id}/read`, { method: 'PUT' });
-  } catch (e) {}
+  } catch {}
 }
 
 export async function clearAllNotificationsDoc() {
   try {
     setLocal('eeu-notifications', []);
   } catch {}
+
+  if (isSupabaseConfigured) {
+    try {
+      await supabase.from('notifications').delete().neq('id', '');
+    } catch {}
+  }
+
   try {
     await fetchApi('/api/notifications', { method: 'DELETE' });
-  } catch (e) {}
+  } catch {}
+}
+
+// ==========================================
+// 3. PRESET FEEDERS LIST
+// ==========================================
+
+export function subscribeToFeedersList(onUpdate: (items: string[]) => void) {
+  const fetchItems = () => {
+    fetchApi('/api/presetFeeders').then(data => {
+      const merged = Array.from(new Set([...INITIAL_FEEDERS_LIST, ...data])).sort();
+      onUpdate(merged);
+      setLocal('eeu-feeders-list-v4', merged);
+    }).catch(() => {
+      onUpdate(getLocal('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST));
+    });
+  };
+  fetchItems();
+  const interval = setInterval(fetchItems, 10000);
+  return () => clearInterval(interval);
 }
 
 export async function addPresetFeederDoc(feederStr: string) {
@@ -287,7 +504,7 @@ export async function addPresetFeederDoc(feederStr: string) {
   } catch {}
   try {
     await fetchApi('/api/presetFeeders', { method: 'POST', body: JSON.stringify({ id: `feeder-${Date.now()}`, feederStr }) });
-  } catch (e) {}
+  } catch {}
 }
 
 export async function deletePresetFeederDoc(feederStr: string) {
@@ -297,7 +514,7 @@ export async function deletePresetFeederDoc(feederStr: string) {
   } catch {}
   try {
     await fetchApi(`/api/presetFeeders/${encodeURIComponent(feederStr)}`, { method: 'DELETE' });
-  } catch (e) {}
+  } catch {}
 }
 
 export async function updatePresetFeederDoc(oldFeederStr: string, newFeederStr: string) {
@@ -307,7 +524,7 @@ export async function updatePresetFeederDoc(oldFeederStr: string, newFeederStr: 
   } catch {}
   try {
     await fetchApi('/api/presetFeeders', { method: 'PUT', body: JSON.stringify({ oldFeederStr, newFeederStr }) });
-  } catch (e) {}
+  } catch {}
 }
 
 export async function resetAllPresetFeedersToMaster() {
@@ -316,8 +533,12 @@ export async function resetAllPresetFeedersToMaster() {
   } catch {}
   try {
     await fetchApi('/api/presetFeeders/bulk', { method: 'POST', body: JSON.stringify({ feeders: INITIAL_FEEDERS_LIST }) });
-  } catch (e) {}
+  } catch {}
 }
+
+// ==========================================
+// 4. HUB RECORDS
+// ==========================================
 
 export function subscribeToHubRecords(onUpdate: (items: HubRecord[]) => void) {
   const mergeRecords = (incoming: HubRecord[] | null | undefined): HubRecord[] => {
@@ -339,54 +560,100 @@ export function subscribeToHubRecords(onUpdate: (items: HubRecord[]) => void) {
       const merged = mergeRecords(data);
       onUpdate(merged);
       setLocal('eeu-hub-records', merged);
-    }).catch(e => {
-      const local = getLocal<HubRecord[]>('eeu-hub-records', HUB_RECORDS);
-      const merged = mergeRecords(local);
-      onUpdate(merged);
+    }).catch(() => {
+      onUpdate(getLocal<HubRecord[]>('eeu-hub-records', HUB_RECORDS));
     });
   };
   fetchItems();
-  const interval = setInterval(fetchItems, 8000);
+  const interval = setInterval(fetchItems, 10000);
   return () => clearInterval(interval);
 }
 
 export async function updateHubRecordDoc(record: HubRecord) {
-  // Update local cache first to ensure immediate responsiveness
   try {
-    const current = getLocal<HubRecord[]>('eeu-hub-records', HUB_RECORDS);
-    const updated = current.map(item => item.no === record.no ? { ...item, ...record } : item);
+    const stored = getLocal<HubRecord[]>('eeu-hub-records', HUB_RECORDS);
+    const updated = stored.map(item => item.no === record.no ? { ...item, ...record } : item);
     setLocal('eeu-hub-records', updated);
-  } catch {
-    // ignore
-  }
+  } catch {}
   try {
     await fetchApi(`/api/hubRecords/${record.no}`, { method: 'PUT', body: JSON.stringify(record) });
-  } catch (e) {
-    console.warn('Backend /api/hubRecords not available. Saved locally.');
-  }
+  } catch {}
 }
 
 export async function resetHubRecordsToDefaultDoc() {
   setLocal('eeu-hub-records', HUB_RECORDS);
   try {
     await fetchApi('/api/hubRecords/reset', { method: 'POST' });
-  } catch (e) {
-    console.warn('Backend /api/hubRecords/reset not available.');
-  }
+  } catch {}
 }
 
+// ==========================================
+// 5. TEAM LEADER NOTES (SUPABASE + REALTIME)
+// ==========================================
+
 export function subscribeToTeamLeaderNotes(onUpdate: (items: TeamLeaderNote[]) => void) {
-  const fetchItems = () => {
-    fetchApi('/api/teamLeaderNotes').then(data => {
-      onUpdate(data);
-      setLocal('eeu-team-leader-notes', data);
-    }).catch(e => {
-      onUpdate(getLocal('eeu-team-leader-notes', []));
-    });
+  const cached = getLocal<TeamLeaderNote[]>('eeu-team-leader-notes', []);
+  if (cached && cached.length > 0) {
+    onUpdate(cached);
+  }
+
+  const fetchSupabase = async () => {
+    if (!isSupabaseConfigured) return false;
+    try {
+      const { data, error } = await supabase.from('teamLeaderNotes').select('*');
+      if (!error && Array.isArray(data)) {
+        onUpdate(data);
+        setLocal('eeu-team-leader-notes', data);
+        return true;
+      }
+    } catch {}
+    return false;
   };
-  fetchItems();
-  const interval = setInterval(fetchItems, 5000);
-  return () => clearInterval(interval);
+
+  const fetchFallback = () => {
+    fetchApi('/api/teamLeaderNotes')
+      .then(data => {
+        onUpdate(data);
+        setLocal('eeu-team-leader-notes', data);
+      })
+      .catch(() => {
+        onUpdate(getLocal('eeu-team-leader-notes', []));
+      });
+  };
+
+  fetchSupabase().then(success => {
+    if (!success) fetchFallback();
+  });
+
+  let channel: any = null;
+  if (isSupabaseConfigured) {
+    try {
+      const channelId = `realtime-notes-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      channel = supabase
+        .channel(channelId)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'teamLeaderNotes' }, () => {
+          fetchSupabase();
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime subscription failed for teamLeaderNotes, using polling:', err);
+    }
+  }
+
+  const interval = setInterval(() => {
+    fetchSupabase().then(success => {
+      if (!success) fetchFallback();
+    });
+  }, 6000);
+
+  return () => {
+    clearInterval(interval);
+    if (channel) {
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+    }
+  };
 }
 
 export async function addTeamLeaderNoteDoc(content: string, author: string, isUrgent: boolean) {
@@ -400,11 +667,20 @@ export async function addTeamLeaderNoteDoc(content: string, author: string, isUr
     const existing = getLocal<TeamLeaderNote[]>('eeu-team-leader-notes', []);
     setLocal('eeu-team-leader-notes', [record, ...existing]);
   } catch {}
+
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase.from('teamLeaderNotes').insert(record);
+      notifyIfRlsError('teamLeaderNotes', error);
+    } catch (e) {
+      console.error('Supabase note insert error:', e);
+    }
+  }
+
   try {
     await fetchApi('/api/teamLeaderNotes', { method: 'POST', body: JSON.stringify(record) });
-  } catch (e) {
-    console.warn('Backend /api/teamLeaderNotes not available. Saved locally.');
-  }
+  } catch {}
+
   return record;
 }
 
@@ -416,11 +692,19 @@ export async function updateTeamLeaderNoteDoc(id: string, content: string, isUrg
     const existing = getLocal<TeamLeaderNote[]>('eeu-team-leader-notes', []);
     setLocal('eeu-team-leader-notes', existing.map(n => n.id === id ? { ...n, content, isUrgent, timestamp: timestampStr } : n));
   } catch {}
+
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase.from('teamLeaderNotes').update({ content, isUrgent, timestamp: timestampStr }).eq('id', id);
+      notifyIfRlsError('teamLeaderNotes', error);
+    } catch (e) {
+      console.error('Supabase note update error:', e);
+    }
+  }
+
   try {
     await fetchApi(`/api/teamLeaderNotes/${id}`, { method: 'PUT', body: JSON.stringify({ content, isUrgent, timestamp: timestampStr }) });
-  } catch (e) {
-    console.warn('Backend /api/teamLeaderNotes not available. Updated locally.');
-  }
+  } catch {}
 }
 
 export async function deleteTeamLeaderNoteDoc(id: string) {
@@ -428,23 +712,40 @@ export async function deleteTeamLeaderNoteDoc(id: string) {
     const existing = getLocal<TeamLeaderNote[]>('eeu-team-leader-notes', []);
     setLocal('eeu-team-leader-notes', existing.filter(n => n.id !== id));
   } catch {}
+
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase.from('teamLeaderNotes').delete().eq('id', id);
+      notifyIfRlsError('teamLeaderNotes', error);
+    } catch (e) {
+      console.error('Supabase note delete error:', e);
+    }
+  }
+
   try {
     await fetchApi(`/api/teamLeaderNotes/${id}`, { method: 'DELETE' });
-  } catch (e) {
-    console.warn('Backend /api/teamLeaderNotes not available. Deleted locally.');
-  }
+  } catch {}
 }
 
 export async function clearTeamLeaderNotes() {
   try {
     setLocal('eeu-team-leader-notes', []);
   } catch {}
+
+  if (isSupabaseConfigured) {
+    try {
+      await supabase.from('teamLeaderNotes').delete().neq('id', '');
+    } catch {}
+  }
+
   try {
     await fetchApi('/api/teamLeaderNotes', { method: 'DELETE' });
-  } catch (e) {
-    console.warn('Backend /api/teamLeaderNotes not available. Cleared locally.');
-  }
+  } catch {}
 }
+
+// ==========================================
+// 6. CUSTOMER CONTACTS
+// ==========================================
 
 export function subscribeToCustomerContacts(onUpdate: (items: ContactItem[]) => void) {
   const fetchItems = () => {
@@ -458,7 +759,7 @@ export function subscribeToCustomerContacts(onUpdate: (items: ContactItem[]) => 
       });
       onUpdate(data);
       setLocal('eeu-customer-contacts', data);
-    }).catch(e => {
+    }).catch(() => {
       onUpdate(getLocal('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS));
     });
   };
@@ -476,9 +777,7 @@ export async function addCustomerContactDoc(item: Omit<ContactItem, 'id'>) {
   } catch {}
   try {
     await fetchApi('/api/customerContacts', { method: 'POST', body: JSON.stringify(record) });
-  } catch (e) {
-    console.warn('Backend /api/customerContacts not available. Saved locally.');
-  }
+  } catch {}
   return record;
 }
 
@@ -489,9 +788,7 @@ export async function updateCustomerContactDoc(item: ContactItem) {
   } catch {}
   try {
     await fetchApi(`/api/customerContacts/${item.id}`, { method: 'PUT', body: JSON.stringify(item) });
-  } catch (e) {
-    console.warn('Backend /api/customerContacts not available. Updated locally.');
-  }
+  } catch {}
 }
 
 export async function deleteCustomerContactDoc(id: string) {
@@ -501,10 +798,12 @@ export async function deleteCustomerContactDoc(id: string) {
   } catch {}
   try {
     await fetchApi(`/api/customerContacts/${id}`, { method: 'DELETE' });
-  } catch (e) {
-    console.warn('Backend /api/customerContacts not available. Deleted locally.');
-  }
+  } catch {}
 }
+
+// ==========================================
+// 7. TEAM LEADERS & USERS (SUPABASE + REALTIME)
+// ==========================================
 
 export function subscribeToTeamLeaders(onUpdate: (items: TeamLeaderUser[]) => void) {
   const getInitial = (): TeamLeaderUser[] => {
@@ -516,7 +815,28 @@ export function subscribeToTeamLeaders(onUpdate: (items: TeamLeaderUser[]) => vo
     return stored;
   };
 
-  const fetchItems = () => {
+  // Immediate cached render
+  const initial = getInitial();
+  onUpdate(initial);
+
+  const fetchSupabase = async () => {
+    if (!isSupabaseConfigured) return false;
+    try {
+      const { data, error } = await supabase.from('teamLeaders').select('*');
+      if (!error && Array.isArray(data) && data.length > 0) {
+        data.sort((a, b) => a.name.localeCompare(b.name));
+        onUpdate(data);
+        setLocal('eeu-team-leaders', data);
+        return true;
+      }
+      if (error) {
+        notifyIfRlsError('teamLeaders', error);
+      }
+    } catch {}
+    return false;
+  };
+
+  const fetchFallback = () => {
     fetchApi('/api/teamLeaders').then(data => {
       if (Array.isArray(data) && data.length > 0) {
         data.sort((a: any, b: any) => a.name.localeCompare(b.name));
@@ -527,15 +847,46 @@ export function subscribeToTeamLeaders(onUpdate: (items: TeamLeaderUser[]) => vo
         fallback.sort((a, b) => a.name.localeCompare(b.name));
         onUpdate(fallback);
       }
-    }).catch(e => {
+    }).catch(() => {
       const fallback = getInitial();
       fallback.sort((a, b) => a.name.localeCompare(b.name));
       onUpdate(fallback);
     });
   };
-  fetchItems();
-  const interval = setInterval(fetchItems, 10000);
-  return () => clearInterval(interval);
+
+  fetchSupabase().then(success => {
+    if (!success) fetchFallback();
+  });
+
+  let channel: any = null;
+  if (isSupabaseConfigured) {
+    try {
+      const channelId = `realtime-teamleaders-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      channel = supabase
+        .channel(channelId)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'teamLeaders' }, () => {
+          fetchSupabase();
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime subscription failed for teamLeaders, using polling:', err);
+    }
+  }
+
+  const interval = setInterval(() => {
+    fetchSupabase().then(success => {
+      if (!success) fetchFallback();
+    });
+  }, 6000);
+
+  return () => {
+    clearInterval(interval);
+    if (channel) {
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+    }
+  };
 }
 
 export async function addTeamLeaderDoc(item: Omit<TeamLeaderUser, 'id' | 'createdAt'>) {
@@ -551,7 +902,7 @@ export async function addTeamLeaderDoc(item: Omit<TeamLeaderUser, 'id' | 'create
   };
   if (typeof item.mustChangePassword === 'boolean') record.mustChangePassword = item.mustChangePassword;
 
-  // Persist directly to localStorage first
+  // 1. Local storage immediate save
   try {
     const existing = getLocal<TeamLeaderUser[]>('eeu-team-leaders', DEFAULT_TEAM_LEADERS);
     const updated = [...existing.filter(tl => tl.id !== record.id), record];
@@ -560,12 +911,20 @@ export async function addTeamLeaderDoc(item: Omit<TeamLeaderUser, 'id' | 'create
     console.error('Failed to save team leader to localStorage:', err);
   }
 
-  // Sync to backend API if available
+  // 2. Supabase save
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase.from('teamLeaders').insert(record);
+      notifyIfRlsError('teamLeaders', error);
+    } catch (e) {
+      console.error('Supabase teamLeader insert error:', e);
+    }
+  }
+
+  // 3. Backend API sync
   try {
     await fetchApi('/api/teamLeaders', { method: 'POST', body: JSON.stringify(record) });
-  } catch (e) {
-    console.warn('Backend /api/teamLeaders not available (e.g. running on Cloudflare Pages). Saved to local storage.');
-  }
+  } catch {}
 
   return record;
 }
@@ -590,11 +949,18 @@ export async function updateTeamLeaderDoc(item: TeamLeaderUser) {
     console.error('Failed to update team leader in localStorage:', err);
   }
 
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase.from('teamLeaders').update(record).eq('id', item.id);
+      notifyIfRlsError('teamLeaders', error);
+    } catch (e) {
+      console.error('Supabase teamLeader update error:', e);
+    }
+  }
+
   try {
     await fetchApi(`/api/teamLeaders/${item.id}`, { method: 'PUT', body: JSON.stringify(record) });
-  } catch (e) {
-    console.warn('Backend /api/teamLeaders not available. Updated in local storage.');
-  }
+  } catch {}
 }
 
 export async function deleteTeamLeaderDoc(id: string) {
@@ -606,11 +972,18 @@ export async function deleteTeamLeaderDoc(id: string) {
     console.error('Failed to delete team leader from localStorage:', err);
   }
 
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase.from('teamLeaders').delete().eq('id', id);
+      notifyIfRlsError('teamLeaders', error);
+    } catch (e) {
+      console.error('Supabase teamLeader delete error:', e);
+    }
+  }
+
   try {
     await fetchApi(`/api/teamLeaders/${id}`, { method: 'DELETE' });
-  } catch (e) {
-    console.warn('Backend /api/teamLeaders not available. Deleted from local storage.');
-  }
+  } catch {}
 }
 
 export interface FeedbackRecord {
@@ -640,6 +1013,8 @@ export async function addFeedbackDoc(feedback: {
     targetEmail: feedback.targetEmail.trim(),
     timestamp: new Date().toISOString()
   };
-  await fetchApi('/api/feedbacks', { method: 'POST', body: JSON.stringify(record) });
+  try {
+    await fetchApi('/api/feedbacks', { method: 'POST', body: JSON.stringify(record) });
+  } catch {}
   return record;
 }

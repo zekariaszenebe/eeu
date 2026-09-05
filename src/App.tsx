@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Zap, Bell, Menu, X, ShieldAlert, CheckCircle2, AlertTriangle, 
   Settings, RefreshCw, Layers, LayoutGrid, Clock, LogOut, Sun, Moon,
-  Headset, ShieldCheck, UserCheck, KeyRound, Eye, EyeOff, MessageCircle 
+  Headset, ShieldCheck, UserCheck, KeyRound, Eye, EyeOff, MessageCircle,
+  Copy, Check
 } from 'lucide-react';
 
 // Context
@@ -175,6 +176,18 @@ export default function App() {
   const [isSidebarMinimized, setIsSidebarMinimized] = useState<boolean>(() => {
     return localStorage.getItem('eeu-sidebar-minimized') === 'true';
   });
+  const [rlsNotice, setRlsNotice] = useState<{ table: string; message: string } | null>(null);
+  const [copiedRlsSql, setCopiedRlsSql] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleRlsNotice = (e: any) => {
+      if (e.detail) {
+        setRlsNotice(e.detail);
+      }
+    };
+    window.addEventListener('supabase-rls-notice', handleRlsNotice);
+    return () => window.removeEventListener('supabase-rls-notice', handleRlsNotice);
+  }, []);
 
   const toggleSidebarMinimize = () => {
     setIsSidebarMinimized(prev => {
@@ -186,6 +199,7 @@ export default function App() {
 
   // Seed initial data if needed and subscribe to Database updates in real-time
   useEffect(() => {
+    let isMounted = true;
     let unsubNotifications = () => {};
     let unsubFeeders = () => {};
     let unsubHubRecords = () => {};
@@ -194,31 +208,40 @@ export default function App() {
     let unsubTeamLeaders = () => {};
 
     seedInitialDataIfEmpty().then(() => {
+      if (!isMounted) return;
+
       unsubNotifications = subscribeToNotifications((items) => {
+        if (!isMounted) return;
         const filtered = items.filter(item => item && item.title !== 'Emergency Diagnostics Launched');
         setNotifications(filtered);
         localStorage.setItem('eeu-notifications', JSON.stringify(filtered));
       });
       unsubFeeders = subscribeToFeedersList((items) => {
+        if (!isMounted) return;
         setFeedersList(items);
         localStorage.setItem('eeu-feeders-version', FEEDERS_VERSION);
         localStorage.setItem('eeu-feeders-list-v4', JSON.stringify(items));
       });
       unsubHubRecords = subscribeToHubRecords((items) => {
+        if (!isMounted) return;
         setHubRecords(items);
       });
       unsubNotes = subscribeToTeamLeaderNotes((items) => {
+        if (!isMounted) return;
         setTeamLeaderNotes(items);
       });
       unsubCustomerContacts = subscribeToCustomerContacts((items) => {
+        if (!isMounted) return;
         setCustomerContacts(items);
       });
       unsubTeamLeaders = subscribeToTeamLeaders((items) => {
+        if (!isMounted) return;
         setTeamLeaders(items);
       });
     });
 
     return () => {
+      isMounted = false;
       unsubNotifications();
       unsubFeeders();
       unsubHubRecords();
@@ -716,6 +739,46 @@ export default function App() {
 
             {/* LIVE DATA STATISTICS ROW */}
             {currentTab !== 'hub' && currentTab !== 'admin' && currentTab !== 'notifications' && currentTab !== 'history' && currentTab !== 'contacts' && currentTab !== 'calculator' && currentTab !== 'smartmeter' && currentTab !== 'tariff' && currentTab !== 'sms_generator' && <StatsGrid interruptions={interruptions} />}
+
+            {/* SUPABASE RLS NOTICE BANNER */}
+            {rlsNotice && (
+              <div id="supabase-rls-banner" className="p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/80 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 animate-in slide-in-from-top-3">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-amber-900 dark:text-white">
+                      Supabase Row-Level Security (RLS) is blocking sync on table &quot;{rlsNotice.table}&quot;
+                    </p>
+                    <p className="text-amber-700 dark:text-amber-300 mt-0.5">
+                      To make newly added interruptions sync across all other computers &amp; devices, run the 1-click script in your Supabase SQL Editor.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    id="copy-supabase-rls-sql-btn"
+                    onClick={() => {
+                      const sql = `-- Disable RLS on the app tables so all users can sync data\nALTER TABLE "interruptions" DISABLE ROW LEVEL SECURITY;\nALTER TABLE "notifications" DISABLE ROW LEVEL SECURITY;\nALTER TABLE "teamLeaders" DISABLE ROW LEVEL SECURITY;\nALTER TABLE "teamLeaderNotes" DISABLE ROW LEVEL SECURITY;\n\n-- Enable Realtime broadcast on all tables\nALTER PUBLICATION supabase_realtime ADD TABLE "interruptions";\nALTER PUBLICATION supabase_realtime ADD TABLE "notifications";\nALTER PUBLICATION supabase_realtime ADD TABLE "teamLeaders";\nALTER PUBLICATION supabase_realtime ADD TABLE "teamLeaderNotes";`;
+                      navigator.clipboard.writeText(sql);
+                      setCopiedRlsSql(true);
+                      setTimeout(() => setCopiedRlsSql(false), 3000);
+                    }}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                  >
+                    {copiedRlsSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedRlsSql ? 'SQL Copied!' : 'Copy 1-Click SQL'}</span>
+                  </button>
+                  <button
+                    id="dismiss-supabase-rls-btn"
+                    onClick={() => setRlsNotice(null)}
+                    className="p-1.5 text-amber-700 dark:text-amber-300 hover:text-amber-900 rounded-lg hover:bg-amber-200/50 cursor-pointer"
+                    title="Dismiss"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* DETAILED VIEWS CONTAINER */}
             <div id="active-tab-container" className="pt-2 animate-in fade-in-40 duration-200">

@@ -110,9 +110,12 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Subscribe to real-time updates from Database
   useEffect(() => {
+    let isMounted = true;
     let unsub = () => {};
     seedInitialDataIfEmpty().then(() => {
+      if (!isMounted) return;
       unsub = subscribeToInterruptions((items) => {
+        if (!isMounted) return;
         // Only trigger update if length or items are modified
         setInterruptions(prev => {
           const serializedPrev = JSON.stringify(prev);
@@ -129,7 +132,10 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
         });
       });
     });
-    return () => unsub();
+    return () => {
+      isMounted = false;
+      unsub();
+    };
   }, []);
 
   // Keep active local state clean and bounded
