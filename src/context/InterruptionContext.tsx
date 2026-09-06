@@ -190,9 +190,9 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     try {
       await addInterruptionDoc(entry, tempId);
       triggerToast('New Outage Added', `${entry.feederName} has been synchronized across agent terminals`, 'warn');
-    } catch (e) {
+    } catch (e: any) {
       console.error('Database addInterruptionDoc failed, using local offline fallback:', e);
-      triggerToast('Saved Offline', `${entry.feederName} saved locally. Will sync with backend when network is restored.`, 'info');
+      triggerToast('⚠️ Cloud Sync Blocked', `${entry.feederName} saved on this browser only! Supabase RLS is blocking cloud sync. Check top banner to fix.`, 'warn');
     }
   };
 
@@ -241,9 +241,9 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       } else {
         triggerToast('Record Updated', `Successfully updated grid data for ${existing.feederName}`, 'success');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Database updateInterruptionDoc failed, using local offline fallback:', e);
-      triggerToast('Updated Locally', `Saved modifications for ${existing.feederName} locally.`, 'info');
+      triggerToast('⚠️ Cloud Sync Blocked', `Updated on this browser only! Supabase RLS is blocking updates.`, 'warn');
     }
   };
 
@@ -268,10 +268,10 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       if (target) {
         triggerToast('Record Removed', `${target.feederName} interruption cleared from dispatch lists.`, 'info');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Database deleteInterruptionDoc failed, keeping deletion locally:', e);
       if (target) {
-        triggerToast('Deleted Locally', `${target.feederName} removed locally.`, 'info');
+        triggerToast('⚠️ Cloud Sync Blocked', `${target.feederName} deleted on this browser only! Supabase RLS is blocking deletion.`, 'warn');
       }
     }
   };

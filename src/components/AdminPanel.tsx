@@ -243,6 +243,26 @@ export default function AdminPanel({
     type: 'interruption' | 'feeder' | 'team_leader';
   } | null>(null);
 
+  const [adminRlsNotice, setAdminRlsNotice] = useState<{ table: string; message: string } | null>(null);
+  const [adminCopiedSql, setAdminCopiedSql] = useState(false);
+
+  useEffect(() => {
+    const handleRlsNotice = (e: any) => {
+      if (e.detail) {
+        setAdminRlsNotice(e.detail);
+      }
+    };
+    window.addEventListener('supabase-rls-notice', handleRlsNotice);
+    return () => window.removeEventListener('supabase-rls-notice', handleRlsNotice);
+  }, []);
+
+  const copyRlsSql = () => {
+    const sql = `-- Disable RLS on the app tables so all users can sync data\nALTER TABLE "interruptions" DISABLE ROW LEVEL SECURITY;\nALTER TABLE "notifications" DISABLE ROW LEVEL SECURITY;\nALTER TABLE "teamLeaders" DISABLE ROW LEVEL SECURITY;\nALTER TABLE "teamLeaderNotes" DISABLE ROW LEVEL SECURITY;\n\n-- Enable Realtime broadcast on all tables\nALTER PUBLICATION supabase_realtime ADD TABLE "interruptions";\nALTER PUBLICATION supabase_realtime ADD TABLE "notifications";\nALTER PUBLICATION supabase_realtime ADD TABLE "teamLeaders";\nALTER PUBLICATION supabase_realtime ADD TABLE "teamLeaderNotes";`;
+    navigator.clipboard.writeText(sql);
+    setAdminCopiedSql(true);
+    setTimeout(() => setAdminCopiedSql(false), 3000);
+  };
+
   // Initialize form for adding
   const handleOpenAddForm = () => {
     setEditingItem(null);
@@ -778,6 +798,31 @@ export default function AdminPanel({
         </div>
       </div>
 
+      {/* Supabase RLS sync notice if detected */}
+      {adminRlsNotice && (
+        <div id="admin-supabase-rls-alert" className="p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-amber-900 dark:text-white">
+                Supabase Row-Level Security (RLS) is blocking shared sync on table &quot;{adminRlsNotice.table}&quot;
+              </p>
+              <p className="text-amber-700 dark:text-amber-300 mt-0.5">
+                Outages you add will only save on this browser until you run the SQL script in your Supabase SQL Editor. Copy the 1-click SQL fix below:
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={copyRlsSql}
+            className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl flex items-center gap-2 shrink-0 transition-all cursor-pointer shadow-xs"
+          >
+            {adminCopiedSql ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            <span>{adminCopiedSql ? 'SQL Script Copied!' : 'Copy 1-Click SQL Fix'}</span>
+          </button>
+        </div>
+      )}
+
       {/* Admin Panel Tabs */}
       <div className="flex border-b border-gray-200 dark:border-gray-800/60 gap-1 flex-wrap font-sans">
         <button
@@ -1287,6 +1332,30 @@ export default function AdminPanel({
 
             {/* Modal Body / Form */}
             <form onSubmit={handleFormSubmit} className="p-6 space-y-4">
+              {adminRlsNotice && (
+                <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-2xl text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 dark:text-amber-200">
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-amber-900 dark:text-white">
+                        Database Sync Blocked: Supabase RLS is active on &quot;{adminRlsNotice.table}&quot;
+                      </p>
+                      <p className="text-amber-700 dark:text-amber-300 text-[11px] mt-0.5">
+                        This outage will save to this browser only until you run the SQL fix in Supabase.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={copyRlsSql}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg flex items-center gap-1.5 shrink-0 transition-all cursor-pointer shadow-xs text-xs"
+                  >
+                    {adminCopiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{adminCopiedSql ? 'SQL Copied!' : 'Copy 1-Click SQL'}</span>
+                  </button>
+                </div>
+              )}
+
               {formError && (
                 <div className="p-4 bg-red-100/70 dark:bg-red-950/20 border border-red-200 dark:border-red-900 text-red-650 dark:text-red-400 rounded-2xl text-xs flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />

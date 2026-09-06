@@ -15,7 +15,14 @@ export const DEFAULT_TEAM_LEADERS: TeamLeaderUser[] = [
 function notifyIfRlsError(table: string, error: any) {
   if (!error) return;
   console.warn(`[Supabase ${table} Error]:`, error);
-  if (error.code === '42501' || error.message?.includes('row-level security')) {
+  const msg = (error.message || '').toLowerCase();
+  if (
+    error.code === '42501' ||
+    msg.includes('row-level security') ||
+    msg.includes('violates row-level security') ||
+    msg.includes('permission denied') ||
+    msg.includes('rls')
+  ) {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('supabase-rls-notice', {
         detail: { table, message: error.message }
@@ -86,6 +93,31 @@ export async function seedInitialDataIfEmpty() {
       }
     } catch {
       // ignore
+    }
+
+    // Startup check: probe if Supabase write permissions are blocked by RLS
+    try {
+      const probeId = `__probe_${Date.now()}`;
+      const { error: probeErr } = await supabase.from('interruptions').insert({
+        id: probeId,
+        feederName: '__PROBE__',
+        district: 'Team A',
+        type: InterruptionType.EARTH_FAULT,
+        status: InterruptionStatus.ACTIVE,
+        startTime: 'N/A',
+        estimatedRestorationTime: 'N/A',
+        affectedArea: 'None',
+        remark: 'probe',
+        lastUpdated: 'N/A'
+      });
+      if (probeErr) {
+        notifyIfRlsError('interruptions', probeErr);
+      } else {
+        // Clean up immediately if allowed
+        await supabase.from('interruptions').delete().eq('id', probeId);
+      }
+    } catch (err) {
+      console.warn('Supabase permission probe failed:', err);
     }
   }
 
@@ -251,14 +283,15 @@ export async function addInterruptionDoc(entry: Omit<FeederInterruption, 'id' | 
 
   // 2. Save directly to Supabase
   if (isSupabaseConfigured) {
-    try {
-      const { error: insErr } = await supabase.from('interruptions').insert(record);
+    const { error: insErr } = await supabase.from('interruptions').insert(record);
+    if (insErr) {
       notifyIfRlsError('interruptions', insErr);
+      throw new Error(insErr.message || 'Supabase write rejected by Row-Level Security');
+    }
 
-      const { error: notiErr } = await supabase.from('notifications').insert(newNoti);
+    const { error: notiErr } = await supabase.from('notifications').insert(newNoti);
+    if (notiErr) {
       notifyIfRlsError('notifications', notiErr);
-    } catch (e) {
-      console.error('Supabase write error:', e);
     }
   }
 
@@ -313,16 +346,17 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
 
   // 2. Update Supabase
   if (isSupabaseConfigured) {
-    try {
-      const { error: updErr } = await supabase.from('interruptions').update(merged).eq('id', id);
+    const { error: updErr } = await supabase.from('interruptions').update(merged).eq('id', id);
+    if (updErr) {
       notifyIfRlsError('interruptions', updErr);
+      throw new Error(updErr.message || 'Supabase update rejected by Row-Level Security');
+    }
 
-      if (changeNoti) {
-        const { error: notiErr } = await supabase.from('notifications').insert(changeNoti);
+    if (changeNoti) {
+      const { error: notiErr } = await supabase.from('notifications').insert(changeNoti);
+      if (notiErr) {
         notifyIfRlsError('notifications', notiErr);
       }
-    } catch (e) {
-      console.error('Supabase update error:', e);
     }
   }
 
@@ -344,11 +378,10 @@ export async function deleteInterruptionDoc(id: string) {
   } catch {}
 
   if (isSupabaseConfigured) {
-    try {
-      const { error } = await supabase.from('interruptions').delete().eq('id', id);
+    const { error } = await supabase.from('interruptions').delete().eq('id', id);
+    if (error) {
       notifyIfRlsError('interruptions', error);
-    } catch (e) {
-      console.error('Supabase delete error:', e);
+      throw new Error(error.message || 'Supabase delete rejected by Row-Level Security');
     }
   }
 

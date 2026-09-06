@@ -17,12 +17,8 @@ import { FEEDERS_VERSION } from './data/feedersList';
 // Database Services
 import { 
   seedInitialDataIfEmpty,
-  subscribeToInterruptions,
   subscribeToNotifications,
   subscribeToFeedersList,
-  addInterruptionDoc,
-  updateInterruptionDoc,
-  deleteInterruptionDoc,
   markAllNotificationsAsReadDoc,
   markOneNotificationAsReadDoc,
   clearAllNotificationsDoc,

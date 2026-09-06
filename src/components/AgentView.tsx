@@ -212,11 +212,15 @@ export default function AgentView({ interruptions, onTriggerMockIncident, isAdmi
   }, [interruptions]);
 
   useEffect(() => {
+    let isMounted = true;
     const unsubscribe = subscribeToInterruptions((items) => {
-      setLiveInterruptions(items);
+      if (isMounted) {
+        setLiveInterruptions(items);
+      }
     });
 
     return () => {
+      isMounted = false;
       unsubscribe();
     };
   }, []);
