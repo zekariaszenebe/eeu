@@ -33,15 +33,23 @@ function notifyIfRlsError(table: string, error: any) {
 
 // Polyfill for API requests
 async function fetchApi(url: string, options?: RequestInit) {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
+  try {
+    const res = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new Error(`Expected JSON but received ${contentType || 'non-json content'}`);
     }
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+    return await res.json();
+  } catch (err) {
+    throw err;
+  }
 }
 
 // Local storage persistent fallback helpers
