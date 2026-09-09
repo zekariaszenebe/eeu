@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   ShieldAlert, Lock, Unlock, Plus, Edit3, CheckCircle2, Trash2, X, AlertCircle, 
   RefreshCw, Info, MapPin, Zap, Clock, ShieldCheck, HelpCircle, Download, Copy, Check, Building,
-  UserCheck, Users, Eye, EyeOff, UserPlus, KeyRound, Shield, Search
+  UserCheck, Users, Eye, EyeOff, UserPlus, KeyRound, Shield, Search, Loader2
 } from 'lucide-react';
 import { FeederInterruption, InterruptionType, InterruptionStatus, stripBrackets, TeamLeaderUser, UserRole } from '../types';
 import { INITIAL_DISTRICTS, INITIAL_FEEDERS_LIST } from '../data/mockData';
@@ -132,6 +132,7 @@ export default function AdminPanel({
 
   // Form message feedback
   const [formError, setFormError] = useState('');
+  const [resolvingIds, setResolvingIds] = useState<Set<string>>(new Set());
 
   // Form state for managing master feeders list
   const [feederSearchQuery, setFeederSearchQuery] = useState('');
@@ -513,20 +514,30 @@ export default function AdminPanel({
     setShowFormModal(false);
   };
 
-  // Quick Resolve feeder toggler
-  const handleQuickResolve = (item: FeederInterruption) => {
+  // Quick Resolve feeder toggler with instant optimistic visual feedback and double-click prevention
+  const handleQuickResolve = async (item: FeederInterruption) => {
+    if (resolvingIds.has(item.id)) return;
+    setResolvingIds(prev => new Set(prev).add(item.id));
     const now = new Date();
-    onUpdateInterruption(item.id, {
-      status: InterruptionStatus.RESTORED,
-      remark: `Restored: Power flow stable. verified active transmission grid. [Log updated at Admin Cabinet].`,
-      estimatedRestorationTime: now.toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      })
-    });
+    try {
+      await onUpdateInterruption(item.id, {
+        status: InterruptionStatus.RESTORED,
+        remark: `Restored: Power flow stable. verified active transmission grid. [Log updated at Admin Cabinet].`,
+        estimatedRestorationTime: now.toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
+      });
+    } finally {
+      setResolvingIds(prev => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+    }
   };
 
   // Export current interruption records as a CSV file for reporting
@@ -983,10 +994,17 @@ export default function AdminPanel({
                             <button
                               id={`admin-resolve-btn-${item.id}`}
                               onClick={() => handleQuickResolve(item)}
-                              title="Mark as Restored"
-                              className="p-2 text-eeu-green hover:bg-eeu-green/10 rounded-lg transition-all"
+                              disabled={resolvingIds.has(item.id)}
+                              title={resolvingIds.has(item.id) ? "Restoring feeder..." : "Mark as Restored"}
+                              className={`p-2 text-eeu-green hover:bg-eeu-green/10 rounded-lg transition-all ${
+                                resolvingIds.has(item.id) ? 'opacity-50 cursor-wait' : ''
+                              }`}
                             >
-                              <CheckCircle2 className="w-4 h-4" />
+                              {resolvingIds.has(item.id) ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-eeu-green" />
+                              ) : (
+                                <CheckCircle2 className="w-4 h-4" />
+                              )}
                             </button>
                           )}
                           

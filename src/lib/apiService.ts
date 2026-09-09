@@ -102,31 +102,6 @@ export async function seedInitialDataIfEmpty() {
     } catch {
       // ignore
     }
-
-    // Startup check: probe if Supabase write permissions are blocked by RLS
-    try {
-      const probeId = `__probe_${Date.now()}`;
-      const { error: probeErr } = await supabase.from('interruptions').insert({
-        id: probeId,
-        feederName: '__PROBE__',
-        district: 'Team A',
-        type: InterruptionType.EARTH_FAULT,
-        status: InterruptionStatus.ACTIVE,
-        startTime: 'N/A',
-        estimatedRestorationTime: 'N/A',
-        affectedArea: 'None',
-        remark: 'probe',
-        lastUpdated: 'N/A'
-      });
-      if (probeErr) {
-        notifyIfRlsError('interruptions', probeErr);
-      } else {
-        // Clean up immediately if allowed
-        await supabase.from('interruptions').delete().eq('id', probeId);
-      }
-    } catch (err) {
-      console.warn('Supabase permission probe failed:', err);
-    }
   }
 
   const SEED_STORAGE_KEY = 'eeu-local-seeded-v7';
@@ -303,12 +278,14 @@ export async function addInterruptionDoc(entry: Omit<FeederInterruption, 'id' | 
     }
   }
 
-  // 3. Background sync to local Express server if running
-  try {
-    await fetchApi('/api/interruptions', { method: 'POST', body: JSON.stringify(record) });
-    await fetchApi('/api/notifications', { method: 'POST', body: JSON.stringify(newNoti) });
-  } catch {
-    // Expected on Cloudflare Pages static hosting
+  // 3. Background sync to local Express server if running (only when Supabase not configured)
+  if (!isSupabaseConfigured) {
+    try {
+      await fetchApi('/api/interruptions', { method: 'POST', body: JSON.stringify(record) });
+      await fetchApi('/api/notifications', { method: 'POST', body: JSON.stringify(newNoti) });
+    } catch {
+      // Expected on static hosting
+    }
   }
 
   return record;
@@ -352,30 +329,46 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
     } catch {}
   }
 
-  // 2. Update Supabase
+  // 2. Update Supabase with clean explicit columns
   if (isSupabaseConfigured) {
-    const { error: updErr } = await supabase.from('interruptions').update(merged).eq('id', id);
+    const updatePayload: Record<string, any> = {
+      lastUpdated: timestampStr
+    };
+    if (entry.status !== undefined) updatePayload.status = entry.status;
+    if (entry.remark !== undefined) updatePayload.remark = entry.remark;
+    if (entry.estimatedRestorationTime !== undefined) updatePayload.estimatedRestorationTime = entry.estimatedRestorationTime;
+    if (entry.feederName !== undefined) updatePayload.feederName = entry.feederName;
+    if (entry.district !== undefined) updatePayload.district = entry.district;
+    if (entry.type !== undefined) updatePayload.type = entry.type;
+    if (entry.startTime !== undefined) updatePayload.startTime = entry.startTime;
+    if (entry.affectedArea !== undefined) updatePayload.affectedArea = entry.affectedArea;
+
+    const { error: updErr } = await supabase.from('interruptions').update(updatePayload).eq('id', id);
     if (updErr) {
       notifyIfRlsError('interruptions', updErr);
       throw new Error(updErr.message || 'Supabase update rejected by Row-Level Security');
     }
 
     if (changeNoti) {
-      const { error: notiErr } = await supabase.from('notifications').insert(changeNoti);
-      if (notiErr) {
-        notifyIfRlsError('notifications', notiErr);
-      }
+      // Fire-and-forget notification insertion so it never blocks UI responsiveness
+      supabase.from('notifications').insert(changeNoti).then(({ error: notiErr }) => {
+        if (notiErr) {
+          notifyIfRlsError('notifications', notiErr);
+        }
+      }).catch(() => {});
     }
   }
 
-  // 3. Fallback to Express backend if running
-  try {
-    await fetchApi(`/api/interruptions/${id}`, { method: 'PUT', body: JSON.stringify(merged) });
-    if (changeNoti) {
-      await fetchApi('/api/notifications', { method: 'POST', body: JSON.stringify(changeNoti) });
+  // 3. Fallback to Express backend ONLY if Supabase is not configured
+  if (!isSupabaseConfigured) {
+    try {
+      await fetchApi(`/api/interruptions/${id}`, { method: 'PUT', body: JSON.stringify(merged) });
+      if (changeNoti) {
+        await fetchApi('/api/notifications', { method: 'POST', body: JSON.stringify(changeNoti) });
+      }
+    } catch {
+      // Expected on static hosting
     }
-  } catch {
-    // Expected on Cloudflare Pages static hosting
   }
 }
 
@@ -393,10 +386,12 @@ export async function deleteInterruptionDoc(id: string) {
     }
   }
 
-  try {
-    await fetchApi(`/api/interruptions/${id}`, { method: 'DELETE' });
-  } catch {
-    // Expected on Cloudflare Pages static hosting
+  if (!isSupabaseConfigured) {
+    try {
+      await fetchApi(`/api/interruptions/${id}`, { method: 'DELETE' });
+    } catch {
+      // Expected on static hosting
+    }
   }
 }
 

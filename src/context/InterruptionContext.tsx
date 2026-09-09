@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { FeederInterruption, InterruptionStatus } from '../types';
 import { 
   addInterruptionDoc, 
@@ -69,6 +69,10 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   const [liveToast, setLiveToast] = useState<{ title: string; desc: string; type: 'info' | 'success' | 'warn' } | null>(null);
 
+  // Protection maps to prevent background polling from reverting optimistic user actions (e.g. marking Restored)
+  const pendingUpdatesRef = useRef<Map<string, { record: FeederInterruption; expiresAt: number }>>(new Map());
+  const pendingDeletesRef = useRef<Map<string, number>>(new Map());
+
   const triggerToast = (title: string, desc: string, type: 'info' | 'success' | 'warn' = 'info') => {
     setLiveToast({ title, desc, type });
     setTimeout(() => {
@@ -124,10 +128,40 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       if (!isMounted) return;
       unsub = subscribeToInterruptions((items) => {
         if (!isMounted) return;
+        const now = Date.now();
+
+        // Clean expired pending mutations
+        for (const [id, val] of pendingUpdatesRef.current.entries()) {
+          if (val.expiresAt < now) {
+            pendingUpdatesRef.current.delete(id);
+          }
+        }
+        for (const [id, exp] of pendingDeletesRef.current.entries()) {
+          if (exp < now) {
+            pendingDeletesRef.current.delete(id);
+          }
+        }
+
+        // Filter out pending deletes
+        const nonDeleted = items.filter(item => !pendingDeletesRef.current.has(item.id));
+
+        // Merge pending updates (e.g. freshly restored feeder line) so polling never reverts user actions
+        const resolvedItems = nonDeleted.map(item => {
+          const pending = pendingUpdatesRef.current.get(item.id);
+          if (pending) {
+            if (item.status === pending.record.status) {
+              pendingUpdatesRef.current.delete(item.id);
+              return item;
+            }
+            return { ...item, ...pending.record };
+          }
+          return item;
+        });
+
         // Only trigger update if length or items are modified
         setInterruptions(prev => {
           const serializedPrev = JSON.stringify(prev);
-          const serializedNext = JSON.stringify(items);
+          const serializedNext = JSON.stringify(resolvedItems);
           if (serializedPrev === serializedNext) return prev;
           
           try {
@@ -135,8 +169,8 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
           } catch (e) {
             console.error('Failed to write Database updates to localStorage', e);
           }
-          channel?.postMessage({ type: 'SYNC_INTERRUPTIONS', data: items });
-          return items;
+          channel?.postMessage({ type: 'SYNC_INTERRUPTIONS', data: resolvedItems });
+          return resolvedItems;
         });
       });
     });
@@ -145,23 +179,6 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       unsub();
     };
   }, []);
-
-  // Keep active local state clean and bounded
-  useEffect(() => {
-    const restored = interruptions.filter(item => item && item.status === InterruptionStatus.RESTORED);
-    if (restored.length > 30) {
-      const sortedRestored = [...restored].sort((a, b) => (b.lastUpdated || '').localeCompare(a.lastUpdated || ''));
-      const excessIds = new Set(sortedRestored.slice(30).map(item => item.id));
-      setInterruptions(prev => {
-        const next = prev.filter(item => !excessIds.has(item.id));
-        try {
-          localStorage.setItem('eeu-interruptions', JSON.stringify(next));
-        } catch (e) {}
-        channel?.postMessage({ type: 'SYNC_INTERRUPTIONS', data: next });
-        return next;
-      });
-    }
-  }, [interruptions]);
 
   // Create interruption with local persistence fallback
   const addInterruption = async (entry: Omit<FeederInterruption, 'id' | 'lastUpdated'>) => {
@@ -195,39 +212,58 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       return nextList;
     });
 
+    triggerToast('New Outage Added', `${entry.feederName} has been synchronized across agent terminals`, 'warn');
+
     try {
       await addInterruptionDoc(entry, tempId);
-      triggerToast('New Outage Added', `${entry.feederName} has been synchronized across agent terminals`, 'warn');
     } catch (e: any) {
       console.error('Database addInterruptionDoc failed, using local offline fallback:', e);
       triggerToast('⚠️ Cloud Sync Blocked', `${entry.feederName} saved on this browser only! Supabase RLS is blocking cloud sync. Check top banner to fix.`, 'warn');
     }
   };
 
-  // Update interruption with local persistence fallback
+  // Update interruption with guaranteed synchronous resolution & optimistic locking
   const updateInterruption = async (id: string, entry: Partial<FeederInterruption>) => {
-    let existing: FeederInterruption | undefined;
-    let backupList: FeederInterruption[] = [];
+    // 1. Resolve existing record reliably without depending on React batching
+    const existing = interruptions.find(item => item.id === id) || 
+      (() => {
+        try {
+          const stored = localStorage.getItem('eeu-interruptions');
+          if (stored) {
+            const list: FeederInterruption[] = JSON.parse(stored);
+            return list.find(item => item.id === id);
+          }
+        } catch {}
+        return undefined;
+      })();
 
+    if (!existing) {
+      console.warn(`[updateInterruption] Record ${id} not found in state or storage`);
+      return;
+    }
+
+    const timestampStr = new Date().toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+
+    const updatedRecord: FeederInterruption = {
+      ...existing,
+      ...entry,
+      lastUpdated: timestampStr
+    };
+
+    // 2. Protect this record from being reverted by concurrent background polling
+    pendingUpdatesRef.current.set(id, {
+      record: updatedRecord,
+      expiresAt: Date.now() + 15000
+    });
+
+    // 3. Immediately apply to local state, localStorage, and BroadcastChannel
     setInterruptions(prev => {
-      backupList = prev;
-      existing = prev.find(item => item.id === id);
-      if (!existing) return prev;
-
-      const timestampStr = new Date().toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
-
-      const updatedRecord: FeederInterruption = {
-        ...existing,
-        ...entry,
-        lastUpdated: timestampStr
-      };
-
       const nextList = prev.map(item => item.id === id ? updatedRecord : item);
       try {
         localStorage.setItem('eeu-interruptions', JSON.stringify(nextList));
@@ -236,19 +272,20 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       return nextList;
     });
 
-    if (!existing) return;
+    // 4. Trigger UI notification toast immediately so user gets instant zero-lag confirmation
+    if (entry.status && entry.status !== existing.status) {
+      const titleText = entry.status === InterruptionStatus.RESTORED ? 'Feeder Line Cleared' : 'Operational Status Changed';
+      const messageText = entry.status === InterruptionStatus.RESTORED 
+        ? `${existing.feederName} restored to active grid status and re-energized successfully.`
+        : `${existing.feederName} reassessed as ${entry.status}.`;
+      triggerToast(titleText, messageText, entry.status === InterruptionStatus.RESTORED ? 'success' : 'info');
+    } else {
+      triggerToast('Record Updated', `Successfully updated grid data for ${existing.feederName}`, 'success');
+    }
 
+    // 5. Asynchronously persist to Supabase
     try {
       await updateInterruptionDoc(id, entry, existing);
-      if (entry.status && entry.status !== existing.status) {
-        const titleText = entry.status === InterruptionStatus.RESTORED ? 'Feeder Line Cleared' : 'Operational Status Changed';
-        const messageText = entry.status === InterruptionStatus.RESTORED 
-          ? `${existing.feederName} restored to active grid status and re-energized successfully.`
-          : `${existing.feederName} reassessed as ${entry.status}.`;
-        triggerToast(titleText, messageText, entry.status === InterruptionStatus.RESTORED ? 'success' : 'info');
-      } else {
-        triggerToast('Record Updated', `Successfully updated grid data for ${existing.feederName}`, 'success');
-      }
     } catch (e: any) {
       console.error('Database updateInterruptionDoc failed, using local offline fallback:', e);
       triggerToast('⚠️ Cloud Sync Blocked', `Updated on this browser only! Supabase RLS is blocking updates.`, 'warn');
@@ -257,12 +294,23 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Delete interruption with local persistence fallback
   const deleteInterruption = async (id: string) => {
-    let target: FeederInterruption | undefined;
-    let backupList: FeederInterruption[] = [];
+    const target = interruptions.find(i => i.id === id) || 
+      (() => {
+        try {
+          const stored = localStorage.getItem('eeu-interruptions');
+          if (stored) {
+            const list: FeederInterruption[] = JSON.parse(stored);
+            return list.find(item => item.id === id);
+          }
+        } catch {}
+        return undefined;
+      })();
+
+    // Protect deletion from being reverted by concurrent background polling
+    pendingDeletesRef.current.set(id, Date.now() + 15000);
+    pendingUpdatesRef.current.delete(id);
 
     setInterruptions(prev => {
-      backupList = prev;
-      target = prev.find(i => i.id === id);
       const nextList = prev.filter(i => i.id !== id);
       try {
         localStorage.setItem('eeu-interruptions', JSON.stringify(nextList));
@@ -271,11 +319,12 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       return nextList;
     });
 
+    if (target) {
+      triggerToast('Record Removed', `${target.feederName} interruption cleared from dispatch lists.`, 'info');
+    }
+
     try {
       await deleteInterruptionDoc(id);
-      if (target) {
-        triggerToast('Record Removed', `${target.feederName} interruption cleared from dispatch lists.`, 'info');
-      }
     } catch (e: any) {
       console.error('Database deleteInterruptionDoc failed, keeping deletion locally:', e);
       if (target) {
