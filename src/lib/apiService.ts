@@ -351,11 +351,16 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
 
     if (changeNoti) {
       // Fire-and-forget notification insertion so it never blocks UI responsiveness
-      supabase.from('notifications').insert(changeNoti).then(({ error: notiErr }) => {
-        if (notiErr) {
-          notifyIfRlsError('notifications', notiErr);
+      (async () => {
+        try {
+          const { error: notiErr } = await supabase.from('notifications').insert(changeNoti);
+          if (notiErr) {
+            notifyIfRlsError('notifications', notiErr);
+          }
+        } catch {
+          // Ignore background failures
         }
-      }).catch(() => {});
+      })();
     }
   }
 

@@ -770,7 +770,7 @@ export default function AdminPanel({
               <Plus className="w-4 h-4" />
               <span>Add Interruption</span>
             </button>
-          ) : adminSubTab === 'feeders' ? (
+          ) : (isAdmin || userRole === 'admin') && adminSubTab === 'feeders' ? (
             <div className="flex items-center gap-2">
               {onResetMasterFeeders && (
                 <button
@@ -796,7 +796,7 @@ export default function AdminPanel({
                 <span>Add Feeder Preset</span>
               </button>
             </div>
-          ) : (
+          ) : (isAdmin || userRole === 'admin') && adminSubTab === 'team_leaders' ? (
             <button
               id="admin-tl-add-btn"
               onClick={handleOpenAddTL}
@@ -805,7 +805,7 @@ export default function AdminPanel({
               <UserPlus className="w-4 h-4" />
               <span>Add Team Leader</span>
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -848,18 +848,20 @@ export default function AdminPanel({
           <Zap className="w-3.5 h-3.5" />
           <span className="font-sans">Disruptions Board ({interruptions.length})</span>
         </button>
-        <button
-          id="admin-subtab-feeders"
-          onClick={() => setAdminSubTab('feeders')}
-          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 font-sans ${
-            adminSubTab === 'feeders'
-              ? 'border-eeu-green text-eeu-green'
-              : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'
-          }`}
-        >
-          <Building className="w-3.5 h-3.5" />
-          <span className="font-sans">Preset Feeder Lines Database ({activeFeeders.length})</span>
-        </button>
+        {(isAdmin || userRole === 'admin') && (
+          <button
+            id="admin-subtab-feeders"
+            onClick={() => setAdminSubTab('feeders')}
+            className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-all cursor-pointer flex items-center gap-2 font-sans ${
+              adminSubTab === 'feeders'
+                ? 'border-eeu-green text-eeu-green'
+                : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'
+            }`}
+          >
+            <Building className="w-3.5 h-3.5" />
+            <span className="font-sans">Preset Feeder Lines Database ({activeFeeders.length})</span>
+          </button>
+        )}
         {(isAdmin || userRole === 'admin') && (
           <button
             id="admin-subtab-team-leaders"
@@ -1043,8 +1045,8 @@ export default function AdminPanel({
       </div>
       )}
 
-      {/* Preset Feeder Lines Database Manager */}
-      {adminSubTab === 'feeders' && (
+      {/* Preset Feeder Lines Database Manager (Admin Only) */}
+      {adminSubTab === 'feeders' && (isAdmin || userRole === 'admin') && (
         <div className="glass-card rounded-2xl overflow-hidden">
           <div className="p-5 border-b border-gray-200/30 dark:border-gray-800/30 bg-transparent flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="text-left flex-1">
