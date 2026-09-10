@@ -3,9 +3,8 @@ import {
   Zap, Bell, Menu, X, ShieldAlert, CheckCircle2, AlertTriangle, 
   Settings, RefreshCw, Layers, LayoutGrid, Clock, LogOut, Sun, Moon,
   Headset, ShieldCheck, UserCheck, KeyRound, Eye, EyeOff, MessageCircle,
-  Copy, Check, Database
+  Copy, Check
 } from 'lucide-react';
-import { checkSupabaseHealth } from './lib/supabase';
 
 // Context
 import { useInterruptions } from './context/InterruptionContext';
@@ -175,27 +174,6 @@ export default function App() {
   });
   const [rlsNotice, setRlsNotice] = useState<{ table: string; message: string } | null>(null);
   const [copiedRlsSql, setCopiedRlsSql] = useState<boolean>(false);
-  const [supabaseHealth, setSupabaseHealth] = useState<{ connected: boolean; count: number; latencyMs: number; error?: string } | null>(null);
-  const [showDbModal, setShowDbModal] = useState<boolean>(false);
-  const [isTestingDb, setIsTestingDb] = useState<boolean>(false);
-
-  const runDbCheck = async () => {
-    setIsTestingDb(true);
-    try {
-      const health = await checkSupabaseHealth();
-      setSupabaseHealth(health);
-    } catch {
-      setSupabaseHealth({ connected: false, count: 0, latencyMs: 0 });
-    } finally {
-      setIsTestingDb(false);
-    }
-  };
-
-  useEffect(() => {
-    runDbCheck();
-    const interval = setInterval(runDbCheck, 8000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     const handleRlsNotice = (e: any) => {
@@ -523,16 +501,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Cloud Sync Status Indicator */}
-            <button
-              id="mobile-cloud-sync-btn"
-              onClick={() => setShowDbModal(true)}
-              className="p-2 text-gray-400 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900 rounded-lg relative"
-              title="Supabase Cloud Database Status"
-            >
-              <Database className={`w-4.5 h-4.5 ${supabaseHealth?.connected ? 'text-emerald-500' : 'text-amber-500'}`} />
-            </button>
-
             {/* Notification Indicator badge */}
             <button
               id="mobile-tab-noti-toggle"
@@ -710,23 +678,6 @@ export default function App() {
 
               {/* User Profile Pill Card & Action Buttons */}
               <div className="flex items-center gap-2.5">
-                {/* Cloud Sync Status Indicator */}
-                <button
-                  id="header-cloud-sync-btn"
-                  onClick={() => setShowDbModal(true)}
-                  title="Supabase Cloud Realtime Sync Status"
-                  className="relative h-10 px-3.5 rounded-full bg-white dark:bg-gray-900 border border-gray-200/80 dark:border-gray-800 shadow-xs hover:shadow flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-all cursor-pointer shrink-0"
-                >
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${supabaseHealth?.connected ? 'bg-emerald-400' : 'bg-amber-400'} opacity-75`} />
-                    <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${supabaseHealth?.connected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                  </span>
-                  <Database className="w-3.5 h-3.5 text-eeu-green" />
-                  <span className="max-sm:hidden font-mono text-[11.5px]">
-                    {supabaseHealth?.connected ? `Cloud: Sync Live (${supabaseHealth.count})` : 'Cloud: Connecting...'}
-                  </span>
-                </button>
-
                 {/* Feedback Button */}
                 <button
                   id="header-feedback-btn"
@@ -945,86 +896,6 @@ export default function App() {
             </div>
           </div>
         </footer>
-
-        {/* SUPABASE CLOUD STATUS & REALTIME MODAL */}
-        {showDbModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
-            <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-2xl max-w-md w-full p-6 text-left space-y-4">
-              <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-                    <Database className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-display font-bold text-gray-900 dark:text-white text-base">
-                      Supabase Cloud Sync Status
-                    </h3>
-                    <p className="text-[11px] text-gray-400">
-                      Live Real-time synchronization engine
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowDbModal(false)}
-                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="space-y-3 text-xs">
-                <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200/60 dark:border-gray-700/60 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-500 font-medium">Database Status:</span>
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      {supabaseHealth?.connected ? 'Connected & Healthy' : 'Checking...'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-500 font-medium">Cloud Database:</span>
-                    <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">Supabase PostgreSQL</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-500 font-medium">Active Interruptions in DB:</span>
-                    <span className="font-bold text-gray-900 dark:text-white">{supabaseHealth?.count ?? interruptions.length} Feeders</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-500 font-medium">Cloud Latency:</span>
-                    <span className="font-mono text-gray-700 dark:text-gray-300">{supabaseHealth?.latencyMs ? `${supabaseHealth.latencyMs} ms` : 'Testing...'}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-500 font-medium">Realtime Protocol:</span>
-                    <span className="font-medium text-emerald-600 dark:text-emerald-400">WebSockets + Polling (3.5s)</span>
-                  </div>
-                </div>
-
-                <p className="text-[11.5px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                  Any interruption added by a Team Leader or Admin is saved directly to your Supabase PostgreSQL cloud database and broadcast instantly across all connected screens.
-                </p>
-              </div>
-
-              <div className="pt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={runDbCheck}
-                  disabled={isTestingDb}
-                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingDb ? 'animate-spin' : ''}`} />
-                  <span>{isTestingDb ? 'Verifying Cloud Ping...' : 'Test Cloud Connection'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowDbModal(false)}
-                  className="px-4 py-2.5 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 font-semibold rounded-xl text-xs transition-all cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* FEEDBACK MODAL */}
         <FeedbackModal
