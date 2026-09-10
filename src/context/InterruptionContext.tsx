@@ -123,12 +123,11 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
   // Subscribe to real-time updates from Database
   useEffect(() => {
     let isMounted = true;
-    let unsub = () => {};
-    seedInitialDataIfEmpty().then(() => {
+    seedInitialDataIfEmpty().catch(() => {});
+
+    const unsub = subscribeToInterruptions((items) => {
       if (!isMounted) return;
-      unsub = subscribeToInterruptions((items) => {
-        if (!isMounted) return;
-        const now = Date.now();
+      const now = Date.now();
 
         // Clean expired pending mutations
         for (const [id, val] of pendingUpdatesRef.current.entries()) {
@@ -173,7 +172,6 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
           return resolvedItems;
         });
       });
-    });
     return () => {
       isMounted = false;
       unsub();

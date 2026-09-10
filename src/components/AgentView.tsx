@@ -1140,13 +1140,37 @@ export default function AgentView({ interruptions, onTriggerMockIncident, isAdmi
       {/* Main Results Board */}
       <div className="order-4 w-full flex flex-col gap-6">
         {sortedItems.length === 0 ? (
-        <div id="no-results-panel" className="glass-card rounded-3xl p-12 text-center">
-          <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
-          <h3 className="text-base font-display font-semibold text-gray-900 dark:text-white">
-            No Outage Records
-          </h3>
-        </div>
-      ) : (
+          <div id="no-results-panel" className="glass-card rounded-3xl p-10 text-center max-w-xl mx-auto my-6 border border-gray-200/80 dark:border-gray-800">
+            <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <CheckCircle className="w-7 h-7" />
+            </div>
+            <h3 className="text-lg font-display font-bold text-gray-900 dark:text-white">
+              {searchQuery || selectedDistrict !== 'All' || selectedType !== 'All' || selectedDirection !== 'All' 
+                ? 'No Outages Match Active Filter' 
+                : 'No Active Feeder Outages'}
+            </h3>
+            <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
+              {searchQuery || selectedDistrict !== 'All' || selectedType !== 'All' || selectedDirection !== 'All'
+                ? 'Try clearing your search query or resetting the district / direction filters.'
+                : displayInterruptions.filter(i => i.status === InterruptionStatus.RESTORED).length > 0
+                ? `All reported feeders are currently energized and stable! ${displayInterruptions.filter(i => i.status === InterruptionStatus.RESTORED).length} restored outages are archived in the "Restored Feeders" tab.`
+                : 'All electrical distribution feeder lines are normal. New outages added by Team Leaders or Admins will instantly appear here in real-time.'}
+            </p>
+            {(searchQuery || selectedDistrict !== 'All' || selectedType !== 'All' || selectedDirection !== 'All') && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedDistrict('All');
+                  setSelectedType('All');
+                  setSelectedDirection('All');
+                }}
+                className="mt-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-xs"
+              >
+                Reset All Filters
+              </button>
+            )}
+          </div>
+        ) : (
         <>
           {(() => {
             const directionsToRender = selectedDirection !== 'All' 

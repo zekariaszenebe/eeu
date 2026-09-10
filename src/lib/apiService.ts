@@ -109,6 +109,13 @@ export async function seedInitialDataIfEmpty() {
     return;
   }
 
+  if (isSupabaseConfigured) {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(SEED_STORAGE_KEY, 'true');
+    }
+    return;
+  }
+
   try {
     const presetRes = await fetchApi('/api/presetFeeders');
     if (presetRes.length === 0) {

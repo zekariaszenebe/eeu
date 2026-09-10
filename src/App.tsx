@@ -196,44 +196,35 @@ export default function App() {
   // Seed initial data if needed and subscribe to Database updates in real-time
   useEffect(() => {
     let isMounted = true;
-    let unsubNotifications = () => {};
-    let unsubFeeders = () => {};
-    let unsubHubRecords = () => {};
-    let unsubNotes = () => {};
-    let unsubCustomerContacts = () => {};
-    let unsubTeamLeaders = () => {};
+    seedInitialDataIfEmpty().catch(() => {});
 
-    seedInitialDataIfEmpty().then(() => {
+    const unsubNotifications = subscribeToNotifications((items) => {
       if (!isMounted) return;
-
-      unsubNotifications = subscribeToNotifications((items) => {
-        if (!isMounted) return;
-        const filtered = items.filter(item => item && item.title !== 'Emergency Diagnostics Launched');
-        setNotifications(filtered);
-        localStorage.setItem('eeu-notifications', JSON.stringify(filtered));
-      });
-      unsubFeeders = subscribeToFeedersList((items) => {
-        if (!isMounted) return;
-        setFeedersList(items);
-        localStorage.setItem('eeu-feeders-version', FEEDERS_VERSION);
-        localStorage.setItem('eeu-feeders-list-v4', JSON.stringify(items));
-      });
-      unsubHubRecords = subscribeToHubRecords((items) => {
-        if (!isMounted) return;
-        setHubRecords(items);
-      });
-      unsubNotes = subscribeToTeamLeaderNotes((items) => {
-        if (!isMounted) return;
-        setTeamLeaderNotes(items);
-      });
-      unsubCustomerContacts = subscribeToCustomerContacts((items) => {
-        if (!isMounted) return;
-        setCustomerContacts(items);
-      });
-      unsubTeamLeaders = subscribeToTeamLeaders((items) => {
-        if (!isMounted) return;
-        setTeamLeaders(items);
-      });
+      const filtered = items.filter(item => item && item.title !== 'Emergency Diagnostics Launched');
+      setNotifications(filtered);
+      localStorage.setItem('eeu-notifications', JSON.stringify(filtered));
+    });
+    const unsubFeeders = subscribeToFeedersList((items) => {
+      if (!isMounted) return;
+      setFeedersList(items);
+      localStorage.setItem('eeu-feeders-version', FEEDERS_VERSION);
+      localStorage.setItem('eeu-feeders-list-v4', JSON.stringify(items));
+    });
+    const unsubHubRecords = subscribeToHubRecords((items) => {
+      if (!isMounted) return;
+      setHubRecords(items);
+    });
+    const unsubNotes = subscribeToTeamLeaderNotes((items) => {
+      if (!isMounted) return;
+      setTeamLeaderNotes(items);
+    });
+    const unsubCustomerContacts = subscribeToCustomerContacts((items) => {
+      if (!isMounted) return;
+      setCustomerContacts(items);
+    });
+    const unsubTeamLeaders = subscribeToTeamLeaders((items) => {
+      if (!isMounted) return;
+      setTeamLeaders(items);
     });
 
     return () => {
