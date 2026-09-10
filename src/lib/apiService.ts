@@ -136,6 +136,76 @@ export async function seedInitialDataIfEmpty() {
 }
 
 // ==========================================
+// SHARED REALTIME SYNC ENGINE (SUPABASE BROADCAST + POSTGRES CHANGES)
+// ==========================================
+// Broadcast channels work instantly across all connected browsers without needing DB replication!
+let sharedRealtimeChannel: ReturnType<typeof supabase.channel> | null = null;
+const syncListeners = {
+  interruptions: new Set<() => void>(),
+  notifications: new Set<() => void>(),
+  teamLeaders: new Set<() => void>(),
+  teamLeaderNotes: new Set<() => void>(),
+};
+
+export function getSharedRealtimeChannel() {
+  if (!isSupabaseConfigured) return null;
+  if (!sharedRealtimeChannel) {
+    sharedRealtimeChannel = supabase.channel('eeu-global-shared-sync', {
+      config: {
+        broadcast: { ack: false, self: false },
+      },
+    });
+
+    // 1. Instant cross-browser broadcast listener (zero database configuration needed, 100% reliable)
+    sharedRealtimeChannel.on('broadcast', { event: 'EEU_DATA_SYNC' }, (payload: any) => {
+      const topic = payload?.payload?.topic as keyof typeof syncListeners;
+      if (topic && syncListeners[topic]) {
+        syncListeners[topic].forEach(cb => {
+          try { cb(); } catch (err) { console.error('Sync listener error:', err); }
+        });
+      }
+    });
+
+    // 2. Direct PostgreSQL table changes listener (if publication enabled)
+    sharedRealtimeChannel
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'interruptions' }, () => {
+        syncListeners.interruptions.forEach(cb => { try { cb(); } catch {} });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
+        syncListeners.notifications.forEach(cb => { try { cb(); } catch {} });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'teamLeaders' }, () => {
+        syncListeners.teamLeaders.forEach(cb => { try { cb(); } catch {} });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'teamLeaderNotes' }, () => {
+        syncListeners.teamLeaderNotes.forEach(cb => { try { cb(); } catch {} });
+      });
+
+    sharedRealtimeChannel.subscribe((status: string) => {
+      console.log('[Supabase Global Sync Status]:', status);
+    });
+  }
+  return sharedRealtimeChannel;
+}
+
+export function broadcastGlobalSync(topic: 'interruptions' | 'notifications' | 'teamLeaders' | 'teamLeaderNotes', meta?: any) {
+  try {
+    const ch = getSharedRealtimeChannel();
+    if (ch) {
+      ch.send({
+        type: 'broadcast',
+        event: 'EEU_DATA_SYNC',
+        payload: { topic, timestamp: Date.now(), ...meta },
+      }).catch((err: any) => {
+        console.warn('Broadcast send failed:', err);
+      });
+    }
+  } catch (e) {
+    console.warn('broadcastGlobalSync error:', e);
+  }
+}
+
+// ==========================================
 // 1. FEEDER INTERRUPTIONS (SUPABASE + REALTIME)
 // ==========================================
 
@@ -180,44 +250,45 @@ export function subscribeToInterruptions(onUpdate: (items: FeederInterruption[])
       });
   };
 
-  // Initial load
+  // Initial load immediately
   fetchSupabase().then(success => {
     if (!success) fetchFallback();
   });
 
-  // Setup Supabase Realtime channel with unique instance topic to prevent reuse collisions
-  let channel: any = null;
-  if (isSupabaseConfigured) {
-    try {
-      const channelId = `realtime-interruptions-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      channel = supabase
-        .channel(channelId)
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'interruptions' },
-          () => {
-            fetchSupabase();
-          }
-        )
-        .subscribe();
-    } catch (err) {
-      console.warn('Realtime subscription failed for interruptions, using polling:', err);
+  // Register on Shared Realtime Sync
+  getSharedRealtimeChannel();
+  const onSync = () => {
+    fetchSupabase();
+  };
+  syncListeners.interruptions.add(onSync);
+
+  // Automatic refresh when switching back to this tab/window
+  const handleVisibility = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      fetchSupabase();
     }
+  };
+  const handleFocus = () => {
+    fetchSupabase();
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
   }
 
-  // Periodic polling fallback every 6 seconds to ensure cross-tab & cross-device freshness
+  // Periodic polling fallback every 3.5 seconds to guarantee cross-tab & cross-device freshness
   const interval = setInterval(() => {
     fetchSupabase().then(success => {
       if (!success) fetchFallback();
     });
-  }, 6000);
+  }, 3500);
 
   return () => {
+    syncListeners.interruptions.delete(onSync);
     clearInterval(interval);
-    if (channel) {
-      try {
-        supabase.removeChannel(channel);
-      } catch {}
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
     }
   };
 }
@@ -276,6 +347,10 @@ export async function addInterruptionDoc(entry: Omit<FeederInterruption, 'id' | 
     if (notiErr) {
       notifyIfRlsError('notifications', notiErr);
     }
+
+    // Broadcast instant sync event to all other open browsers/devices across the network
+    broadcastGlobalSync('interruptions');
+    broadcastGlobalSync('notifications');
   }
 
   // 3. Background sync to local Express server if running (only when Supabase not configured)
@@ -349,6 +424,9 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
       throw new Error(updErr.message || 'Supabase update rejected by Row-Level Security');
     }
 
+    // Instant broadcast of update to all terminals
+    broadcastGlobalSync('interruptions');
+
     if (changeNoti) {
       // Fire-and-forget notification insertion so it never blocks UI responsiveness
       (async () => {
@@ -357,6 +435,7 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
           if (notiErr) {
             notifyIfRlsError('notifications', notiErr);
           }
+          broadcastGlobalSync('notifications');
         } catch {
           // Ignore background failures
         }
@@ -389,6 +468,8 @@ export async function deleteInterruptionDoc(id: string) {
       notifyIfRlsError('interruptions', error);
       throw new Error(error.message || 'Supabase delete rejected by Row-Level Security');
     }
+    // Instant broadcast deletion to all connected browsers
+    broadcastGlobalSync('interruptions');
   }
 
   if (!isSupabaseConfigured) {
@@ -413,7 +494,7 @@ export function subscribeToNotifications(onUpdate: (items: SystemNotification[])
   const fetchSupabase = async () => {
     if (!isSupabaseConfigured) return false;
     try {
-      const { data, error } = await supabase.from('notifications').select('*');
+      const { data, error } = await supabase.from('notifications').select('*').order('timestamp', { ascending: false });
       if (!error && Array.isArray(data)) {
         onUpdate(data);
         setLocal('eeu-notifications', data);
@@ -438,33 +519,32 @@ export function subscribeToNotifications(onUpdate: (items: SystemNotification[])
     if (!success) fetchFallback();
   });
 
-  let channel: any = null;
-  if (isSupabaseConfigured) {
-    try {
-      const channelId = `realtime-notifications-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      channel = supabase
-        .channel(channelId)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
-          fetchSupabase();
-        })
-        .subscribe();
-    } catch (err) {
-      console.warn('Realtime subscription failed for notifications, using polling:', err);
+  getSharedRealtimeChannel();
+  const onSync = () => {
+    fetchSupabase();
+  };
+  syncListeners.notifications.add(onSync);
+
+  const handleVisibility = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      fetchSupabase();
     }
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('visibilitychange', handleVisibility);
   }
 
   const interval = setInterval(() => {
     fetchSupabase().then(success => {
       if (!success) fetchFallback();
     });
-  }, 6000);
+  }, 4000);
 
   return () => {
+    syncListeners.notifications.delete(onSync);
     clearInterval(interval);
-    if (channel) {
-      try {
-        supabase.removeChannel(channel);
-      } catch {}
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('visibilitychange', handleVisibility);
     }
   };
 }
@@ -666,34 +746,21 @@ export function subscribeToTeamLeaderNotes(onUpdate: (items: TeamLeaderNote[]) =
     if (!success) fetchFallback();
   });
 
-  let channel: any = null;
-  if (isSupabaseConfigured) {
-    try {
-      const channelId = `realtime-notes-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      channel = supabase
-        .channel(channelId)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'teamLeaderNotes' }, () => {
-          fetchSupabase();
-        })
-        .subscribe();
-    } catch (err) {
-      console.warn('Realtime subscription failed for teamLeaderNotes, using polling:', err);
-    }
-  }
+  getSharedRealtimeChannel();
+  const onSync = () => {
+    fetchSupabase();
+  };
+  syncListeners.teamLeaderNotes.add(onSync);
 
   const interval = setInterval(() => {
     fetchSupabase().then(success => {
       if (!success) fetchFallback();
     });
-  }, 6000);
+  }, 4000);
 
   return () => {
+    syncListeners.teamLeaderNotes.delete(onSync);
     clearInterval(interval);
-    if (channel) {
-      try {
-        supabase.removeChannel(channel);
-      } catch {}
-    }
   };
 }
 
@@ -713,6 +780,7 @@ export async function addTeamLeaderNoteDoc(content: string, author: string, isUr
     try {
       const { error } = await supabase.from('teamLeaderNotes').insert(record);
       notifyIfRlsError('teamLeaderNotes', error);
+      broadcastGlobalSync('teamLeaderNotes');
     } catch (e) {
       console.error('Supabase note insert error:', e);
     }
@@ -738,6 +806,7 @@ export async function updateTeamLeaderNoteDoc(id: string, content: string, isUrg
     try {
       const { error } = await supabase.from('teamLeaderNotes').update({ content, isUrgent, timestamp: timestampStr }).eq('id', id);
       notifyIfRlsError('teamLeaderNotes', error);
+      broadcastGlobalSync('teamLeaderNotes');
     } catch (e) {
       console.error('Supabase note update error:', e);
     }
@@ -758,6 +827,7 @@ export async function deleteTeamLeaderNoteDoc(id: string) {
     try {
       const { error } = await supabase.from('teamLeaderNotes').delete().eq('id', id);
       notifyIfRlsError('teamLeaderNotes', error);
+      broadcastGlobalSync('teamLeaderNotes');
     } catch (e) {
       console.error('Supabase note delete error:', e);
     }
@@ -776,6 +846,7 @@ export async function clearTeamLeaderNotes() {
   if (isSupabaseConfigured) {
     try {
       await supabase.from('teamLeaderNotes').delete().neq('id', '');
+      broadcastGlobalSync('teamLeaderNotes');
     } catch {}
   }
 
@@ -865,7 +936,7 @@ export function subscribeToTeamLeaders(onUpdate: (items: TeamLeaderUser[]) => vo
     try {
       const { data, error } = await supabase.from('teamLeaders').select('*');
       if (!error && Array.isArray(data) && data.length > 0) {
-        data.sort((a, b) => a.name.localeCompare(b.name));
+        data.sort((a: any, b: any) => a.name.localeCompare(b.name));
         onUpdate(data);
         setLocal('eeu-team-leaders', data);
         return true;
@@ -899,34 +970,21 @@ export function subscribeToTeamLeaders(onUpdate: (items: TeamLeaderUser[]) => vo
     if (!success) fetchFallback();
   });
 
-  let channel: any = null;
-  if (isSupabaseConfigured) {
-    try {
-      const channelId = `realtime-teamleaders-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      channel = supabase
-        .channel(channelId)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'teamLeaders' }, () => {
-          fetchSupabase();
-        })
-        .subscribe();
-    } catch (err) {
-      console.warn('Realtime subscription failed for teamLeaders, using polling:', err);
-    }
-  }
+  getSharedRealtimeChannel();
+  const onSync = () => {
+    fetchSupabase();
+  };
+  syncListeners.teamLeaders.add(onSync);
 
   const interval = setInterval(() => {
     fetchSupabase().then(success => {
       if (!success) fetchFallback();
     });
-  }, 6000);
+  }, 4000);
 
   return () => {
+    syncListeners.teamLeaders.delete(onSync);
     clearInterval(interval);
-    if (channel) {
-      try {
-        supabase.removeChannel(channel);
-      } catch {}
-    }
   };
 }
 
@@ -957,6 +1015,7 @@ export async function addTeamLeaderDoc(item: Omit<TeamLeaderUser, 'id' | 'create
     try {
       const { error } = await supabase.from('teamLeaders').insert(record);
       notifyIfRlsError('teamLeaders', error);
+      broadcastGlobalSync('teamLeaders');
     } catch (e) {
       console.error('Supabase teamLeader insert error:', e);
     }
@@ -994,6 +1053,7 @@ export async function updateTeamLeaderDoc(item: TeamLeaderUser) {
     try {
       const { error } = await supabase.from('teamLeaders').update(record).eq('id', item.id);
       notifyIfRlsError('teamLeaders', error);
+      broadcastGlobalSync('teamLeaders');
     } catch (e) {
       console.error('Supabase teamLeader update error:', e);
     }
@@ -1017,6 +1077,7 @@ export async function deleteTeamLeaderDoc(id: string) {
     try {
       const { error } = await supabase.from('teamLeaders').delete().eq('id', id);
       notifyIfRlsError('teamLeaders', error);
+      broadcastGlobalSync('teamLeaders');
     } catch (e) {
       console.error('Supabase teamLeader delete error:', e);
     }
