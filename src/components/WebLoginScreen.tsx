@@ -377,48 +377,6 @@ export default function WebLoginScreen({ onLoginSuccess, teamLeaders = [] }: Web
               </button>
             </form>
 
-            {/* Quick Access Helper Pills */}
-            <div className="mt-4 pt-3 border-t border-gray-150/70 text-left">
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-2 text-center">
-                Quick Role Credentials
-              </span>
-              <div className="grid grid-cols-3 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUsername('agent');
-                    setPassword('Eeu@1234');
-                  }}
-                  className="py-1.5 px-2 rounded-xl border border-gray-200 bg-gray-50/80 hover:bg-emerald-50 hover:border-emerald-200 hover:text-[#0a5c36] text-[11px] font-bold text-gray-700 transition-all text-center cursor-pointer shadow-2xs"
-                  title="Click to fill Agent username & password"
-                >
-                  Agent
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUsername('teamleader');
-                    setPassword('Tl@1234');
-                  }}
-                  className="py-1.5 px-2 rounded-xl border border-gray-200 bg-gray-50/80 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700 text-[11px] font-bold text-gray-700 transition-all text-center cursor-pointer shadow-2xs"
-                  title="Click to fill Team Leader username & password"
-                >
-                  Team Leader
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUsername('admin');
-                    setPassword('Eeu@1234');
-                  }}
-                  className="py-1.5 px-2 rounded-xl border border-gray-200 bg-gray-50/80 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-700 text-[11px] font-bold text-gray-700 transition-all text-center cursor-pointer shadow-2xs"
-                  title="Click to fill Admin username & password"
-                >
-                  Admin
-                </button>
-              </div>
-            </div>
-
             {/* Bottom Credits & Copyright */}
             <div id="login-card-credits-footer" className="mt-6 pt-4 border-t border-gray-150/70 text-center space-y-1 select-text">
               <p className="text-[11.5px] font-medium text-gray-600">
