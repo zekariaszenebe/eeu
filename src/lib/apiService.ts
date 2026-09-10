@@ -228,7 +228,8 @@ export function subscribeToInterruptions(onUpdate: (items: FeederInterruption[])
     try {
       const { data, error } = await supabase
         .from('interruptions')
-        .select('*');
+        .select('*')
+        .order('id', { ascending: false });
 
       if (!error && Array.isArray(data)) {
         onUpdate(data);

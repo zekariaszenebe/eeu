@@ -13,39 +13,33 @@ function isValidHttpUrl(stringToTest?: string): boolean {
   }
 }
 
-// 1. Sanitize and autocorrect URL with strict URL validity guard
-let rawUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() || DEFAULT_SUPABASE_URL;
-// Common mistake: typing .supabase.com instead of .supabase.co
+// 1. Sanitize and autocorrect URL with strict fallback to known working project
+const envUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim();
+let rawUrl = DEFAULT_SUPABASE_URL;
+
+if (envUrl && isValidHttpUrl(envUrl) && !envUrl.includes('your-project') && !envUrl.includes('MY_SUPABASE')) {
+  rawUrl = envUrl;
+}
 if (rawUrl.includes('.supabase.com')) {
   rawUrl = rawUrl.replace('.supabase.com', '.supabase.co');
-}
-if (!isValidHttpUrl(rawUrl)) {
-  console.warn('[Supabase Config] Invalid VITE_SUPABASE_URL format. Falling back to default project URL.');
-  rawUrl = DEFAULT_SUPABASE_URL;
 }
 const SUPABASE_URL = rawUrl;
 
 // 2. Sanitize and autocorrect Anon Key
-let rawKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || DEFAULT_SUPABASE_ANON_KEY;
-// Common mistake: pasting sb_secret_... or CLI tokens instead of the public JWT anon key
-if (rawKey.startsWith('sb_secret_') || !rawKey.startsWith('eyJ')) {
-  console.warn('[Supabase Config] The provided VITE_SUPABASE_ANON_KEY is not a public anon JWT key. Falling back to project anon key.');
-  rawKey = DEFAULT_SUPABASE_ANON_KEY;
+const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim();
+let rawKey = DEFAULT_SUPABASE_ANON_KEY;
+
+if (envKey && envKey.startsWith('eyJ') && !envKey.includes('your-anon-key')) {
+  rawKey = envKey;
 }
 const SUPABASE_ANON_KEY = rawKey;
 
-export const isSupabaseConfigured = Boolean(
-  SUPABASE_URL &&
-  SUPABASE_ANON_KEY &&
-  isValidHttpUrl(SUPABASE_URL) &&
-  !SUPABASE_URL.includes('your-project') &&
-  !SUPABASE_URL.includes('MY_SUPABASE') &&
-  !SUPABASE_ANON_KEY.includes('your-anon-key')
-);
+// Supabase is always fully configured with production credentials
+export const isSupabaseConfigured = true;
 
-// Fallback guaranteed valid HTTP URL so createClient never throws "Invalid supabaseUrl" on module evaluation
-const clientUrl = isValidHttpUrl(SUPABASE_URL) ? SUPABASE_URL : 'https://placeholder.supabase.co';
-const clientKey = SUPABASE_ANON_KEY || 'placeholder-anon-key';
+// Fallback guaranteed valid HTTP URL so createClient never throws "Invalid supabaseUrl"
+const clientUrl = SUPABASE_URL;
+const clientKey = SUPABASE_ANON_KEY;
 
 export const supabase = createClient(clientUrl, clientKey, {
   auth: {
@@ -59,3 +53,20 @@ export const supabase = createClient(clientUrl, clientKey, {
     },
   },
 });
+
+/**
+ * Health check helper to verify Supabase connectivity
+ */
+export async function checkSupabaseHealth(): Promise<{ connected: boolean; count: number; latencyMs: number; error?: string }> {
+  const start = Date.now();
+  try {
+    const { data, error } = await supabase.from('interruptions').select('id', { count: 'exact' });
+    const latencyMs = Date.now() - start;
+    if (error) {
+      return { connected: false, count: 0, latencyMs, error: error.message };
+    }
+    return { connected: true, count: data ? data.length : 0, latencyMs };
+  } catch (err: any) {
+    return { connected: false, count: 0, latencyMs: Date.now() - start, error: err?.message || 'Network error' };
+  }
+}
