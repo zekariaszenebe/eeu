@@ -1147,14 +1147,12 @@ export default function AgentView({ interruptions, onTriggerMockIncident, isAdmi
             <h3 className="text-lg font-display font-bold text-gray-900 dark:text-white">
               {searchQuery || selectedDistrict !== 'All' || selectedType !== 'All' || selectedDirection !== 'All' 
                 ? 'No Outages Match Active Filter' 
-                : 'No Active Feeder Outages'}
+                : 'No outages'}
             </h3>
             <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
               {searchQuery || selectedDistrict !== 'All' || selectedType !== 'All' || selectedDirection !== 'All'
                 ? 'Try clearing your search query or resetting the district / direction filters.'
-                : displayInterruptions.filter(i => i.status === InterruptionStatus.RESTORED).length > 0
-                ? `All reported feeders are currently energized and stable! ${displayInterruptions.filter(i => i.status === InterruptionStatus.RESTORED).length} restored outages are archived in the "Restored Feeders" tab.`
-                : 'All electrical distribution feeder lines are normal. New outages added by Team Leaders or Admins will instantly appear here in real-time.'}
+                : 'All electrical distribution feeder lines are normal.'}
             </p>
             {(searchQuery || selectedDistrict !== 'All' || selectedType !== 'All' || selectedDirection !== 'All') && (
               <button
