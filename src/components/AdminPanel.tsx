@@ -1593,38 +1593,6 @@ export default function AdminPanel({
                   )}
                 </div>
 
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase font-mono tracking-wider">
-                      Administrative Team Leader
-                    </label>
-                  </div>
-                  {isTeamLeader || userRole === 'team_leader' ? (
-                    <select
-                      id="form-district-select"
-                      value={currentTeamLeader?.district || district || 'Team D'}
-                      disabled
-                      aria-readonly="true"
-                      className="w-full text-xs rounded-xl glass-input p-2.5 text-gray-900 dark:text-white font-semibold cursor-not-allowed opacity-90"
-                    >
-                      <option value={currentTeamLeader?.district || district || 'Team D'}>
-                        {currentTeamLeader?.district || district || 'Team D'} {currentTeamLeader?.name ? `— ${currentTeamLeader.name}` : ''}
-                      </option>
-                    </select>
-                  ) : (
-                    <select
-                      id="form-district-select"
-                      value={district}
-                      onChange={(e) => setDistrict(e.target.value)}
-                      className="w-full text-xs rounded-xl glass-input p-2.5 text-gray-900 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-eeu-green"
-                    >
-                      {INITIAL_DISTRICTS.map((dist) => (
-                        <option key={dist} value={dist}>{dist}</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-
                 {/* Direction (5 Regions) */}
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase font-mono tracking-wider mb-1.5">
