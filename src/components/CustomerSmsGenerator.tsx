@@ -134,10 +134,11 @@ export function CustomerSmsGenerator() {
               type="text"
               inputMode="numeric"
               pattern="[0-9]*"
+              maxLength={10}
               value={ticketInput}
               onChange={(e) => {
-                // Keep raw string but allow paste and clean typing
-                setTicketInput(e.target.value);
+                const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                setTicketInput(digits);
               }}
               placeholder="Enter complaint number"
               className="w-full text-xs rounded-xl glass-input py-2.5 px-3.5 pr-8 text-gray-900 dark:text-white font-sans font-medium placeholder:text-gray-400 focus:outline-none focus:ring-1.5 focus:ring-eeu-green transition-all"
