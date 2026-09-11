@@ -13,10 +13,13 @@ export enum InterruptionStatus {
   RESTORED = 'Restored'
 }
 
+export type CardinalDirection = 'North' | 'East' | 'West' | 'South' | 'Sheger';
+
 export interface FeederInterruption {
   id: string;
   feederName: string;
   district: string;
+  direction?: CardinalDirection;
   type: InterruptionType;
   status: InterruptionStatus;
   startTime: string; // ISO string or simple time format

@@ -312,6 +312,7 @@ export async function addInterruptionDoc(entry: Omit<FeederInterruption, 'id' | 
     id: newId,
     feederName: entry.feederName || '',
     district: entry.district || 'Team A',
+    direction: entry.direction,
     type: entry.type || InterruptionType.EARTH_FAULT,
     status: entry.status || InterruptionStatus.ACTIVE,
     startTime: entry.startTime || timestampStr,
@@ -345,7 +346,12 @@ export async function addInterruptionDoc(entry: Omit<FeederInterruption, 'id' | 
 
   // 2. Save directly to Supabase
   if (isSupabaseConfigured) {
-    const { error: insErr } = await supabase.from('interruptions').insert(record);
+    let { error: insErr } = await supabase.from('interruptions').insert(record);
+    if (insErr && insErr.message && insErr.message.toLowerCase().includes('direction')) {
+      const { direction, ...compatRecord } = record;
+      const retry = await supabase.from('interruptions').insert(compatRecord);
+      insErr = retry.error;
+    }
     if (insErr) {
       notifyIfRlsError('interruptions', insErr);
       throw new Error(insErr.message || 'Supabase write rejected by Row-Level Security');
@@ -425,8 +431,14 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
     if (entry.type !== undefined) updatePayload.type = entry.type;
     if (entry.startTime !== undefined) updatePayload.startTime = entry.startTime;
     if (entry.affectedArea !== undefined) updatePayload.affectedArea = entry.affectedArea;
+    if (entry.direction !== undefined) updatePayload.direction = entry.direction;
 
-    const { error: updErr } = await supabase.from('interruptions').update(updatePayload).eq('id', id);
+    let { error: updErr } = await supabase.from('interruptions').update(updatePayload).eq('id', id);
+    if (updErr && updErr.message && updErr.message.toLowerCase().includes('direction')) {
+      const { direction, ...compatPayload } = updatePayload;
+      const retry = await supabase.from('interruptions').update(compatPayload).eq('id', id);
+      updErr = retry.error;
+    }
     if (updErr) {
       notifyIfRlsError('interruptions', updErr);
       throw new Error(updErr.message || 'Supabase update rejected by Row-Level Security');

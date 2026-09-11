@@ -192,6 +192,7 @@ export const InterruptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       id: tempId,
       feederName: entry.feederName,
       district: entry.district,
+      direction: entry.direction,
       type: entry.type,
       status: entry.status,
       startTime: entry.startTime,

@@ -28,9 +28,60 @@ export function sanitizeHtml(html: string): string {
   return cleaned;
 }
 
-export function getCardinalDirection(district: string, feederName?: string): 'North' | 'East' | 'West' | 'South' | 'Sheger' {
-  const d = district.toLowerCase();
-  const f = (feederName || '').toUpperCase();
+export type CardinalDirection = 'North' | 'East' | 'West' | 'South' | 'Sheger';
+
+export const CARDINAL_DIRECTIONS: { id: CardinalDirection; label: string; fullLabel: string }[] = [
+  { id: 'North', label: 'North', fullLabel: 'North Addis Ababa' },
+  { id: 'East', label: 'East', fullLabel: 'East Addis Ababa' },
+  { id: 'West', label: 'West', fullLabel: 'West Addis Ababa' },
+  { id: 'South', label: 'South', fullLabel: 'South Addis Ababa' },
+  { id: 'Sheger', label: 'Sheger', fullLabel: 'Sheger Region' },
+];
+
+export function getFeederDirectionOverrides(): Record<string, CardinalDirection> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem('eeu-feeder-direction-overrides');
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveFeederDirectionOverride(feederKey: string, direction: CardinalDirection) {
+  if (typeof window === 'undefined' || !feederKey) return;
+  try {
+    const current = getFeederDirectionOverrides();
+    const key = feederKey.trim().toUpperCase();
+    current[key] = direction;
+    localStorage.setItem('eeu-feeder-direction-overrides', JSON.stringify(current));
+    window.dispatchEvent(new CustomEvent('eeu-direction-updated', { detail: { feederKey: key, direction } }));
+  } catch {}
+}
+
+export function getCardinalDirection(
+  district: string, 
+  feederName?: string, 
+  explicitDirection?: string
+): CardinalDirection {
+  if (explicitDirection && ['North', 'East', 'West', 'South', 'Sheger'].includes(explicitDirection)) {
+    return explicitDirection as CardinalDirection;
+  }
+
+  const fUpper = (feederName || '').trim().toUpperCase();
+  if (fUpper) {
+    const overrides = getFeederDirectionOverrides();
+    if (overrides[fUpper]) {
+      return overrides[fUpper];
+    }
+    const parts = fUpper.split(' - ');
+    if (parts.length >= 2 && overrides[parts[1].trim()]) {
+      return overrides[parts[1].trim()];
+    }
+  }
+
+  const d = (district || '').toLowerCase();
+  const f = fUpper;
 
   // North list
   if (
@@ -713,7 +764,7 @@ export default function AgentView({ interruptions, onTriggerMockIncident, isAdmi
     const matchesType = selectedType === 'All' || item.type === selectedType;
 
     // 4. Cardinal Direction Filter Match
-    const itemDir = getCardinalDirection(item.district, item.feederName);
+    const itemDir = getCardinalDirection(item.district, item.feederName, item.direction);
     const matchesDirection = selectedDirection === 'All' || itemDir === selectedDirection;
 
     return matchesSearch && matchesDistrict && matchesType && matchesDirection;
@@ -827,7 +878,7 @@ export default function AgentView({ interruptions, onTriggerMockIncident, isAdmi
   };
 
   displayInterruptions.forEach((item) => {
-    const dir = getCardinalDirection(item.district, item.feederName);
+    const dir = getCardinalDirection(item.district, item.feederName, item.direction);
     const isActive = item.status !== InterruptionStatus.RESTORED;
     
     if (isActive) {
@@ -1213,7 +1264,7 @@ export default function AgentView({ interruptions, onTriggerMockIncident, isAdmi
             return (
               <div id="outages-horizontal-layout" className="space-y-8">
                 {directionsToRender.map((dir) => {
-                  const itemsInDir = sortedItems.filter(item => getCardinalDirection(item.district, item.feederName) === dir);
+                  const itemsInDir = sortedItems.filter(item => getCardinalDirection(item.district, item.feederName, item.direction) === dir);
                   if (itemsInDir.length === 0) return null;
 
                   return (
@@ -1324,7 +1375,7 @@ export default function AgentView({ interruptions, onTriggerMockIncident, isAdmi
             return (
               <div id="outages-grid-grouped" className="space-y-8">
                 {directionsToRender.map((dir) => {
-                  const itemsInDir = sortedItems.filter(item => getCardinalDirection(item.district, item.feederName) === dir);
+                  const itemsInDir = sortedItems.filter(item => getCardinalDirection(item.district, item.feederName, item.direction) === dir);
                   if (itemsInDir.length === 0) return null;
 
                   return (
@@ -1450,7 +1501,7 @@ export default function AgentView({ interruptions, onTriggerMockIncident, isAdmi
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800/80 text-sm">
                       {directionsToRender.map((dir) => {
-                        const itemsInDir = sortedItems.filter(item => getCardinalDirection(item.district, item.feederName) === dir);
+                        const itemsInDir = sortedItems.filter(item => getCardinalDirection(item.district, item.feederName, item.direction) === dir);
                         if (itemsInDir.length === 0) return null;
 
                         return (
