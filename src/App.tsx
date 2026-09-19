@@ -347,7 +347,8 @@ export default function App() {
     const incidentTypes = [
       { t: InterruptionType.EARTH_FAULT, r: 'Ground phase breakdown detected. Substation tripped protectively.' },
       { t: InterruptionType.SHORT_CIRCUIT, r: 'Tree line friction under heavy gusts. Insulators damaged.' },
-      { t: InterruptionType.OPERATIONAL_INTERRUPTION, r: 'Replacing burnt overhead cables and tightening drop link lines.' }
+      { t: InterruptionType.OPERATIONAL_INTERRUPTION, r: 'Replacing burnt overhead cables and tightening drop link lines.' },
+      { t: InterruptionType.SHEDDING, r: 'System-directed load shedding implemented to balance regional grid demand.' }
     ];
     const pickedTypeObj = incidentTypes[Math.floor(Math.random() * incidentTypes.length)];
     

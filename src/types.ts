@@ -4,7 +4,8 @@ export enum InterruptionType {
   PLANNED_INTERRUPTION = 'Planned Interruption',
   OPERATIONAL_INTERRUPTION = 'Operational Interruption',
   DIFFERENTIAL = 'Differential',
-  OVER_CURRENT = 'Over Current'
+  OVER_CURRENT = 'Over Current',
+  SHEDDING = 'Shedding'
 }
 
 export enum InterruptionStatus {

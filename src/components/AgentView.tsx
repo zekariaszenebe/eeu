@@ -3,7 +3,7 @@ import {
   Search, Eye, ShieldAlert, MapPin, AlertTriangle, HelpCircle, 
   Clock, CheckCircle, ArrowUpDown, Grid, List, 
   SlidersHorizontal, CheckSquare, Square, Bell, CalendarClock, Info,
-  Columns, Rows, Zap, Settings, Compass, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
+  Columns, Rows, Zap, ZapOff, Settings, Compass, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
   Trash2, Edit3, Plus, MessageSquare, AlertCircle, Languages,
   Undo, Redo, Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter, AlignRight, AlignJustify, Table, ChevronDown
 } from 'lucide-react';
@@ -224,6 +224,12 @@ export function getTypeBadgeStyles(type: InterruptionType) {
         bg: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200/50 dark:border-amber-950/30',
         icon: Zap,
         colorClass: 'text-amber-500'
+      };
+    case InterruptionType.SHEDDING:
+      return {
+        bg: 'bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-200/50 dark:border-orange-950/30',
+        icon: ZapOff,
+        colorClass: 'text-orange-500'
       };
     default:
       return {
