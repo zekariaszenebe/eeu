@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, Eye, ShieldAlert, MapPin, AlertTriangle, HelpCircle, 
   Clock, CheckCircle, ArrowUpDown, Grid, List, 
-  SlidersHorizontal, CheckSquare, Square, Bell, CalendarClock, Info,
+  SlidersHorizontal, CheckSquare, Square, CalendarClock, Info,
   Columns, Rows, Zap, ZapOff, Settings, Compass, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
   Trash2, Edit3, Plus, MessageSquare, AlertCircle, Languages,
   Undo, Redo, Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter, AlignRight, AlignJustify, Table, ChevronDown
@@ -1181,9 +1181,6 @@ export default function AgentView({ interruptions, onTriggerMockIncident, isAdmi
                 </span>
                 <span className="flex items-center gap-1.5 font-arial">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Partially Connected
-                </span>
-                <span className="flex items-center gap-1.5 font-georgia">
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400" /> Restored Location
                 </span>
               </div>
               <span className="text-right font-arial">Click any area tag once to isolate; click again to clear search filters.</span>

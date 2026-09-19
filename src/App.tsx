@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Zap, Bell, Menu, X, ShieldAlert, CheckCircle2, AlertTriangle, 
+  Zap, Menu, X, ShieldAlert, CheckCircle2, AlertTriangle, 
   Settings, RefreshCw, Layers, LayoutGrid, Clock, LogOut, Sun, Moon,
   Headset, ShieldCheck, UserCheck, KeyRound, Eye, EyeOff, MessageCircle,
   Copy, Check
@@ -174,6 +174,14 @@ export default function App() {
   });
   const [rlsNotice, setRlsNotice] = useState<{ table: string; message: string } | null>(null);
   const [copiedRlsSql, setCopiedRlsSql] = useState<boolean>(false);
+
+  const isContactCenter = !isAdmin && userRole === 'agent';
+
+  useEffect(() => {
+    if (currentTab === 'notifications' || (currentTab === 'history' && isContactCenter)) {
+      setCurrentTab('dashboard');
+    }
+  }, [currentTab, isContactCenter]);
 
   useEffect(() => {
     const handleRlsNotice = (e: any) => {
@@ -502,18 +510,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Notification Indicator badge */}
-            <button
-              id="mobile-tab-noti-toggle"
-              onClick={() => setCurrentTab('notifications')}
-              className="p-2 text-gray-400 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900 rounded-lg relative"
-            >
-              <Bell className="w-4.5 h-4.5" />
-              {activeUnreadCount > 0 && (
-                <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500 animate-ping" />
-              )}
-            </button>
-
             {/* Mobile Hamburger menu */}
             <button
               id="mobile-menu-hamburger"
@@ -548,24 +544,15 @@ export default function App() {
               </button>
             )}
 
-            <button
-              id="mob-nav-notifications"
-              onClick={() => { setCurrentTab('notifications'); setMobileMenuOpen(false); }}
-              className={`w-full p-2.5 rounded-lg text-xs font-semibold flex items-center justify-between ${currentTab === 'notifications' ? 'bg-eeu-green text-white' : 'text-gray-600 dark:text-gray-400'}`}
-            >
-              <span>Incident Feeds</span>
-              {activeUnreadCount > 0 && (
-                <span className="py-0.5 px-2 text-[10px] bg-red-500 rounded-full text-white font-bold">{activeUnreadCount}</span>
-              )}
-            </button>
-
-            <button
-              id="mob-nav-history"
-              onClick={() => { setCurrentTab('history'); setMobileMenuOpen(false); }}
-              className={`w-full p-2.5 rounded-lg text-xs font-semibold flex items-center gap-2 ${currentTab === 'history' ? 'bg-eeu-green text-white' : 'text-gray-600 dark:text-gray-400'}`}
-            >
-              Restored Feeders
-            </button>
+            {!isContactCenter && (
+              <button
+                id="mob-nav-history"
+                onClick={() => { setCurrentTab('history'); setMobileMenuOpen(false); }}
+                className={`w-full p-2.5 rounded-lg text-xs font-semibold flex items-center gap-2 ${currentTab === 'history' ? 'bg-eeu-green text-white' : 'text-gray-600 dark:text-gray-400'}`}
+              >
+                Restored Feeders
+              </button>
+            )}
 
             <button
               id="mob-nav-sms-generator"
@@ -690,21 +677,6 @@ export default function App() {
                   <span>Feedback</span>
                 </button>
 
-                {/* Notifications Button */}
-                <button
-                  id="header-notification-toggle"
-                  onClick={() => setCurrentTab('notifications')}
-                  title="Notifications"
-                  className="relative w-10 h-10 rounded-full bg-white dark:bg-gray-900 border border-gray-200/80 dark:border-gray-800 shadow-sm hover:shadow flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-all cursor-pointer shrink-0"
-                >
-                  <Bell className="w-4.5 h-4.5 text-slate-700 dark:text-slate-200" />
-                  {activeUnreadCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center shadow-xs">
-                      {activeUnreadCount > 9 ? '9+' : activeUnreadCount}
-                    </span>
-                  )}
-                </button>
-
                 {/* User Profile Pill Card */}
                 <div id="user-profile-pill" className="flex items-center gap-2.5 p-1.5 pr-4 pl-2 glass-card rounded-full shadow-sm border border-solid border-gray-250/70 dark:border-gray-800 select-none w-[175px] text-left">
                   <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
@@ -802,17 +774,7 @@ export default function App() {
                 />
               )}
 
-              {currentTab === 'notifications' && (
-                <NotificationCenter
-                  notifications={notifications}
-                  onMarkAllAsRead={handleMarkAllAsRead}
-                  onMarkOneAsRead={handleMarkOneAsRead}
-                  onClearAllNotifications={handleClearAllNotifications}
-                  interruptions={interruptions}
-                />
-              )}
-
-              {currentTab === 'history' && (
+              {currentTab === 'history' && !isContactCenter && (
                 <ResolutionArchive interruptions={interruptions} />
               )}
 
@@ -853,38 +815,6 @@ export default function App() {
             </div>
           </main>
         </div>
-
-        {/* FIXED FLOATING LIVE TOAST/NOTIFICATION POPUP */}
-        {liveToast && (
-          <div className="fixed bottom-6 right-6 p-4 rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-2xl flex items-start gap-3.5 z-55 max-w-sm animate-in slide-in-from-bottom-5 duration-200">
-            <div className={`p-2 rounded-xl text-white shrink-0 ${
-              liveToast.type === 'success' 
-                ? 'bg-eeu-green' 
-                : liveToast.type === 'warn' 
-                ? 'bg-red-500' 
-                : 'bg-blue-600'
-            }`}>
-              <Zap className="w-5 h-5 animate-pulse" />
-            </div>
-            
-            <div className="flex-1 text-left">
-              <h4 className="font-bold text-xs text-gray-900 dark:text-white leading-normal">
-                {liveToast.title}
-              </h4>
-              <p className="text-[11px] text-gray-500 dark:text-gray-300 mt-1 leading-normal">
-                {liveToast.desc}
-              </p>
-            </div>
-            
-            <button
-              id="toast-close-btn"
-              onClick={() => setLiveToast(null)}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-white"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
 
         {/* BOTTOM ACCENT BAR Representing Ethiopian Electric Utility */}
         <footer id="branding-footer" className={`py-3 px-6 bg-white dark:bg-gray-950 border-t border-gray-100 dark:border-gray-900/60 text-center flex items-center justify-end text-[10px] text-gray-400 dark:text-gray-500 font-mono select-none transition-all duration-300 ${isSidebarMinimized ? 'lg:pl-24' : 'lg:pl-72'}`}>

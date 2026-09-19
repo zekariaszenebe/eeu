@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Search, 
-  Zap, 
   Printer
 } from 'lucide-react';
 
@@ -135,11 +134,6 @@ export default function EEUBillTariff() {
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedRate, setCopiedRate] = useState<string | null>(null);
 
-  // Quick rate finder state
-  const [calcYear, setCalcYear] = useState<YearKey>('2020');
-  const [calcQuarter, setCalcQuarter] = useState<number>(4);
-  const [calcCategoryIdx, setCalcCategoryIdx] = useState<number>(0);
-
   const filteredData = useMemo(() => {
     return TARIFF_DATA.filter(row => {
       const matchesGroup = selectedGroup === 'ALL' || row.categoryGroup === selectedGroup;
@@ -159,97 +153,8 @@ export default function EEUBillTariff() {
     window.print();
   };
 
-  const selectedCategory = TARIFF_DATA[calcCategoryIdx];
-  const calculatedRate = selectedCategory ? selectedCategory.rates[calcYear][calcQuarter - 1] : 0;
-
   return (
     <div id="eeu-bill-tariff-container" className="space-y-6 text-left">
-      {/* QUICK RATE LOOKUP CALCULATOR / FINDER */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-amber-500/10 border border-emerald-500/20 dark:border-emerald-500/30">
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-bold text-xs">
-              <Zap className="w-4 h-4 text-emerald-600" />
-              <span>Instant Tariff Lookup</span>
-            </div>
-            <p className="text-[11px] text-gray-600 dark:text-gray-400 mt-0.5">
-              Select category, year, and quarter to inspect the precise official unit rate instantly.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-            {/* Category Selector */}
-            <div className="flex-1 sm:flex-none">
-              <label className="block text-[9px] uppercase font-mono font-bold text-gray-500 dark:text-gray-400 mb-1">
-                Category / Block
-              </label>
-              <select
-                id="lookup-category-select"
-                value={calcCategoryIdx}
-                onChange={(e) => setCalcCategoryIdx(Number(e.target.value))}
-                className="w-full text-xs font-semibold rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-eeu-green cursor-pointer"
-              >
-                {TARIFF_DATA.map((row, idx) => (
-                  <option key={idx} value={idx}>
-                    {row.categoryGroup === 'Domestic' ? `[Domestic] ${row.categoryLabel}` : `[Commercial] ${row.categoryLabel}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Year Selector */}
-            <div>
-              <label className="block text-[9px] uppercase font-mono font-bold text-gray-500 dark:text-gray-400 mb-1">
-                Year
-              </label>
-              <select
-                id="lookup-year-select"
-                value={calcYear}
-                onChange={(e) => setCalcYear(e.target.value as YearKey)}
-                className="text-xs font-semibold rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-eeu-green cursor-pointer"
-              >
-                {YEARS.map(yr => (
-                  <option key={yr} value={yr}>{yr}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Quarter Selector */}
-            <div>
-              <label className="block text-[9px] uppercase font-mono font-bold text-gray-500 dark:text-gray-400 mb-1">
-                Quarter
-              </label>
-              <div className="flex items-center gap-1 bg-white dark:bg-gray-900 p-1 rounded-xl border border-gray-200 dark:border-gray-800">
-                {[1, 2, 3, 4].map(q => (
-                  <button
-                    key={q}
-                    type="button"
-                    onClick={() => setCalcQuarter(q)}
-                    className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                      calcQuarter === q 
-                        ? 'bg-eeu-green text-white shadow-xs' 
-                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                    }`}
-                  >
-                    Q{q}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Result Badge */}
-            <div className="flex items-center gap-2 pl-3 border-l border-gray-200 dark:border-gray-800">
-              <div className="bg-white dark:bg-gray-900 p-2 px-3.5 rounded-xl border border-emerald-300 dark:border-emerald-700/60 shadow-xs">
-                <span className="text-[9px] uppercase font-mono font-bold text-gray-400 block">Unit Rate</span>
-                <span className="text-base font-mono font-black text-emerald-600 dark:text-emerald-400">
-                  {calculatedRate.toFixed(4)} <span className="text-[10px] font-sans font-normal text-gray-500">Birr/kWh</span>
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* FILTER & SEARCH BAR */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">

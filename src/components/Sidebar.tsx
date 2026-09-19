@@ -42,6 +42,7 @@ export default function Sidebar({
     badgeCount?: number;
   }
 
+  const isContactCenter = !isAdmin && userRole === 'agent';
   const canManageFeed = isAdmin || isTeamLeader || userRole === 'team_leader' || userRole === 'admin';
   const feedTabName = isAdmin ? 'Admin Feed Control' : 'Add Interruption Feed';
 
@@ -49,7 +50,7 @@ export default function Sidebar({
     { id: 'dashboard', name: 'Interruption Dashboard', icon: LayoutDashboard },
     ...(canManageFeed ? [{ id: 'admin', name: feedTabName, icon: ShieldAlert }] : []),
     { id: 'sms_generator', name: 'SMS Ticket Generator', icon: MessageSquare },
-    { id: 'history', name: 'Restored Feeders', icon: History },
+    ...(!isContactCenter ? [{ id: 'history', name: 'Restored Feeders', icon: History }] : []),
     { id: 'calculator', name: 'Bill Calculator', icon: Calculator },
     { id: 'smartmeter', name: 'Smart Meter Calculator', icon: Gauge },
     { id: 'tariff', name: 'EEU Bill Tarrif', icon: FileSpreadsheet },
