@@ -31,27 +31,6 @@ function notifyIfRlsError(table: string, error: any) {
   }
 }
 
-// Polyfill for API requests
-async function fetchApi(url: string, options?: RequestInit) {
-  try {
-    const res = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      }
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-      throw new Error(`Expected JSON but received ${contentType || 'non-json content'}`);
-    }
-    return await res.json();
-  } catch (err) {
-    throw err;
-  }
-}
-
 // Local storage persistent fallback helpers
 export function getLocal<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
@@ -109,35 +88,17 @@ export async function seedInitialDataIfEmpty() {
     return;
   }
 
-  if (isSupabaseConfigured) {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(SEED_STORAGE_KEY, 'true');
-    }
-    return;
-  }
-
-  try {
-    const presetRes = await fetchApi('/api/presetFeeders');
-    if (presetRes.length === 0) {
-      await fetchApi('/api/presetFeeders/bulk', { method: 'POST', body: JSON.stringify({ feeders: INITIAL_FEEDERS_LIST }) });
-    }
-    
-    const hubRes = await fetchApi('/api/hubRecords');
-    if (hubRes.length === 0) {
-      await fetchApi('/api/hubRecords/bulk', { method: 'POST', body: JSON.stringify({ records: HUB_RECORDS }) });
-    }
-
-    const teamLeadersRes = await fetchApi('/api/teamLeaders');
-    if (teamLeadersRes.length === 0) {
-      for (const tl of DEFAULT_TEAM_LEADERS) {
-        await fetchApi('/api/teamLeaders', { method: 'POST', body: JSON.stringify(tl) });
-      }
-    }
-  } catch {
-    // Silently ignore if running on static Cloudflare Pages
-  }
-
+  // Ensure local storage has initial datasets
   if (typeof window !== 'undefined') {
+    if (!localStorage.getItem('eeu-feeders-list-v4')) {
+      setLocal('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
+    }
+    if (!localStorage.getItem('eeu-hub-records')) {
+      setLocal('eeu-hub-records', HUB_RECORDS);
+    }
+    if (!localStorage.getItem('eeu-customer-contacts')) {
+      setLocal('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS);
+    }
     localStorage.setItem(SEED_STORAGE_KEY, 'true');
   }
 }
@@ -246,16 +207,7 @@ export function subscribeToInterruptions(onUpdate: (items: FeederInterruption[])
   };
 
   const fetchFallback = () => {
-    fetchApi('/api/interruptions')
-      .then(data => {
-        if (Array.isArray(data)) {
-          onUpdate(data);
-          setLocal('eeu-interruptions', data);
-        }
-      })
-      .catch(() => {
-        onUpdate(getLocal('eeu-interruptions', []));
-      });
+    onUpdate(getLocal('eeu-interruptions', []));
   };
 
   // Initial load immediately
@@ -367,16 +319,6 @@ export async function addInterruptionDoc(entry: Omit<FeederInterruption, 'id' | 
     broadcastGlobalSync('notifications');
   }
 
-  // 3. Background sync to local Express server if running (only when Supabase not configured)
-  if (!isSupabaseConfigured) {
-    try {
-      await fetchApi('/api/interruptions', { method: 'POST', body: JSON.stringify(record) });
-      await fetchApi('/api/notifications', { method: 'POST', body: JSON.stringify(newNoti) });
-    } catch {
-      // Expected on static hosting
-    }
-  }
-
   return record;
 }
 
@@ -462,18 +404,6 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
       })();
     }
   }
-
-  // 3. Fallback to Express backend ONLY if Supabase is not configured
-  if (!isSupabaseConfigured) {
-    try {
-      await fetchApi(`/api/interruptions/${id}`, { method: 'PUT', body: JSON.stringify(merged) });
-      if (changeNoti) {
-        await fetchApi('/api/notifications', { method: 'POST', body: JSON.stringify(changeNoti) });
-      }
-    } catch {
-      // Expected on static hosting
-    }
-  }
 }
 
 export async function deleteInterruptionDoc(id: string) {
@@ -490,14 +420,6 @@ export async function deleteInterruptionDoc(id: string) {
     }
     // Instant broadcast deletion to all connected browsers
     broadcastGlobalSync('interruptions');
-  }
-
-  if (!isSupabaseConfigured) {
-    try {
-      await fetchApi(`/api/interruptions/${id}`, { method: 'DELETE' });
-    } catch {
-      // Expected on static hosting
-    }
   }
 }
 
@@ -525,14 +447,7 @@ export function subscribeToNotifications(onUpdate: (items: SystemNotification[])
   };
 
   const fetchFallback = () => {
-    fetchApi('/api/notifications')
-      .then(data => {
-        onUpdate(data);
-        setLocal('eeu-notifications', data);
-      })
-      .catch(() => {
-        onUpdate(getLocal('eeu-notifications', []));
-      });
+    onUpdate(getLocal('eeu-notifications', []));
   };
 
   fetchSupabase().then(success => {
@@ -580,10 +495,6 @@ export async function markAllNotificationsAsReadDoc() {
       await supabase.from('notifications').update({ read: true }).neq('id', '');
     } catch {}
   }
-
-  try {
-    await fetchApi('/api/notifications/read-all', { method: 'PUT' });
-  } catch {}
 }
 
 export async function markOneNotificationAsReadDoc(id: string) {
@@ -597,10 +508,6 @@ export async function markOneNotificationAsReadDoc(id: string) {
       await supabase.from('notifications').update({ read: true }).eq('id', id);
     } catch {}
   }
-
-  try {
-    await fetchApi(`/api/notifications/${id}/read`, { method: 'PUT' });
-  } catch {}
 }
 
 export async function clearAllNotificationsDoc() {
@@ -613,10 +520,6 @@ export async function clearAllNotificationsDoc() {
       await supabase.from('notifications').delete().neq('id', '');
     } catch {}
   }
-
-  try {
-    await fetchApi('/api/notifications', { method: 'DELETE' });
-  } catch {}
 }
 
 // ==========================================
@@ -624,56 +527,69 @@ export async function clearAllNotificationsDoc() {
 // ==========================================
 
 export function subscribeToFeedersList(onUpdate: (items: string[]) => void) {
-  const fetchItems = () => {
-    fetchApi('/api/presetFeeders').then(data => {
-      const merged = Array.from(new Set([...INITIAL_FEEDERS_LIST, ...data])).sort();
-      onUpdate(merged);
-      setLocal('eeu-feeders-list-v4', merged);
-    }).catch(() => {
-      onUpdate(getLocal('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST));
-    });
+  const load = () => {
+    const data = getLocal<string[]>('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
+    onUpdate(data);
   };
-  fetchItems();
-  const interval = setInterval(fetchItems, 10000);
-  return () => clearInterval(interval);
+  load();
+
+  const handleStorage = (e: StorageEvent) => {
+    if (e.key === 'eeu-feeders-list-v4') load();
+  };
+  const handleCustom = () => load();
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('eeu-feeders-updated', handleCustom);
+  }
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('eeu-feeders-updated', handleCustom);
+    }
+  };
 }
 
 export async function addPresetFeederDoc(feederStr: string) {
   try {
     const existing = getLocal<string[]>('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
-    setLocal('eeu-feeders-list-v4', Array.from(new Set([...existing, feederStr])).sort());
-  } catch {}
-  try {
-    await fetchApi('/api/presetFeeders', { method: 'POST', body: JSON.stringify({ id: `feeder-${Date.now()}`, feederStr }) });
+    const updated = Array.from(new Set([...existing, feederStr])).sort();
+    setLocal('eeu-feeders-list-v4', updated);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('eeu-feeders-updated'));
+    }
   } catch {}
 }
 
 export async function deletePresetFeederDoc(feederStr: string) {
   try {
     const existing = getLocal<string[]>('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
-    setLocal('eeu-feeders-list-v4', existing.filter(f => f !== feederStr));
-  } catch {}
-  try {
-    await fetchApi(`/api/presetFeeders/${encodeURIComponent(feederStr)}`, { method: 'DELETE' });
+    const updated = existing.filter(f => f !== feederStr);
+    setLocal('eeu-feeders-list-v4', updated);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('eeu-feeders-updated'));
+    }
   } catch {}
 }
 
 export async function updatePresetFeederDoc(oldFeederStr: string, newFeederStr: string) {
   try {
     const existing = getLocal<string[]>('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
-    setLocal('eeu-feeders-list-v4', existing.map(f => f === oldFeederStr ? newFeederStr : f));
-  } catch {}
-  try {
-    await fetchApi('/api/presetFeeders', { method: 'PUT', body: JSON.stringify({ oldFeederStr, newFeederStr }) });
+    const updated = existing.map(f => f === oldFeederStr ? newFeederStr : f);
+    setLocal('eeu-feeders-list-v4', updated);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('eeu-feeders-updated'));
+    }
   } catch {}
 }
 
 export async function resetAllPresetFeedersToMaster() {
   try {
     setLocal('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
-  } catch {}
-  try {
-    await fetchApi('/api/presetFeeders/bulk', { method: 'POST', body: JSON.stringify({ feeders: INITIAL_FEEDERS_LIST }) });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('eeu-feeders-updated'));
+    }
   } catch {}
 }
 
@@ -682,32 +598,40 @@ export async function resetAllPresetFeedersToMaster() {
 // ==========================================
 
 export function subscribeToHubRecords(onUpdate: (items: HubRecord[]) => void) {
-  const mergeRecords = (incoming: HubRecord[] | null | undefined): HubRecord[] => {
+  const load = () => {
+    const stored = getLocal<HubRecord[]>('eeu-hub-records', HUB_RECORDS);
     const baseMap = new Map<number, HubRecord>();
     HUB_RECORDS.forEach(r => baseMap.set(r.no, { ...r }));
-    if (Array.isArray(incoming)) {
-      incoming.forEach(r => {
+    if (Array.isArray(stored)) {
+      stored.forEach(r => {
         if (r && typeof r.no === 'number') {
           const existing = baseMap.get(r.no);
           baseMap.set(r.no, existing ? { ...existing, ...r } : r);
         }
       });
     }
-    return Array.from(baseMap.values()).sort((a, b) => (a.no || 0) - (b.no || 0));
+    const merged = Array.from(baseMap.values()).sort((a, b) => (a.no || 0) - (b.no || 0));
+    onUpdate(merged);
   };
 
-  const fetchItems = () => {
-    fetchApi('/api/hubRecords').then(data => {
-      const merged = mergeRecords(data);
-      onUpdate(merged);
-      setLocal('eeu-hub-records', merged);
-    }).catch(() => {
-      onUpdate(getLocal<HubRecord[]>('eeu-hub-records', HUB_RECORDS));
-    });
+  load();
+
+  const handleStorage = (e: StorageEvent) => {
+    if (e.key === 'eeu-hub-records') load();
   };
-  fetchItems();
-  const interval = setInterval(fetchItems, 10000);
-  return () => clearInterval(interval);
+  const handleCustom = () => load();
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('eeu-hub-records-updated', handleCustom);
+  }
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('eeu-hub-records-updated', handleCustom);
+    }
+  };
 }
 
 export async function updateHubRecordDoc(record: HubRecord) {
@@ -715,17 +639,17 @@ export async function updateHubRecordDoc(record: HubRecord) {
     const stored = getLocal<HubRecord[]>('eeu-hub-records', HUB_RECORDS);
     const updated = stored.map(item => item.no === record.no ? { ...item, ...record } : item);
     setLocal('eeu-hub-records', updated);
-  } catch {}
-  try {
-    await fetchApi(`/api/hubRecords/${record.no}`, { method: 'PUT', body: JSON.stringify(record) });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('eeu-hub-records-updated'));
+    }
   } catch {}
 }
 
 export async function resetHubRecordsToDefaultDoc() {
   setLocal('eeu-hub-records', HUB_RECORDS);
-  try {
-    await fetchApi('/api/hubRecords/reset', { method: 'POST' });
-  } catch {}
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('eeu-hub-records-updated'));
+  }
 }
 
 // ==========================================
@@ -752,14 +676,7 @@ export function subscribeToTeamLeaderNotes(onUpdate: (items: TeamLeaderNote[]) =
   };
 
   const fetchFallback = () => {
-    fetchApi('/api/teamLeaderNotes')
-      .then(data => {
-        onUpdate(data);
-        setLocal('eeu-team-leader-notes', data);
-      })
-      .catch(() => {
-        onUpdate(getLocal('eeu-team-leader-notes', []));
-      });
+    onUpdate(getLocal('eeu-team-leader-notes', []));
   };
 
   fetchSupabase().then(success => {
@@ -806,10 +723,6 @@ export async function addTeamLeaderNoteDoc(content: string, author: string, isUr
     }
   }
 
-  try {
-    await fetchApi('/api/teamLeaderNotes', { method: 'POST', body: JSON.stringify(record) });
-  } catch {}
-
   return record;
 }
 
@@ -831,10 +744,6 @@ export async function updateTeamLeaderNoteDoc(id: string, content: string, isUrg
       console.error('Supabase note update error:', e);
     }
   }
-
-  try {
-    await fetchApi(`/api/teamLeaderNotes/${id}`, { method: 'PUT', body: JSON.stringify({ content, isUrgent, timestamp: timestampStr }) });
-  } catch {}
 }
 
 export async function deleteTeamLeaderNoteDoc(id: string) {
@@ -852,10 +761,6 @@ export async function deleteTeamLeaderNoteDoc(id: string) {
       console.error('Supabase note delete error:', e);
     }
   }
-
-  try {
-    await fetchApi(`/api/teamLeaderNotes/${id}`, { method: 'DELETE' });
-  } catch {}
 }
 
 export async function clearTeamLeaderNotes() {
@@ -869,10 +774,6 @@ export async function clearTeamLeaderNotes() {
       broadcastGlobalSync('teamLeaderNotes');
     } catch {}
   }
-
-  try {
-    await fetchApi('/api/teamLeaderNotes', { method: 'DELETE' });
-  } catch {}
 }
 
 // ==========================================
@@ -880,24 +781,36 @@ export async function clearTeamLeaderNotes() {
 // ==========================================
 
 export function subscribeToCustomerContacts(onUpdate: (items: ContactItem[]) => void) {
-  const fetchItems = () => {
-    fetchApi('/api/customerContacts').then(data => {
-      data.sort((a: any, b: any) => {
-        const catOrder: any = { 'head_regional': 0, 'sheger_city': 1, 'regional_hotline': 2 };
-        const aOrder = catOrder[a.category] ?? 3;
-        const bOrder = catOrder[b.category] ?? 3;
-        if (aOrder !== bOrder) return aOrder - bOrder;
-        return a.name.localeCompare(b.name);
-      });
-      onUpdate(data);
-      setLocal('eeu-customer-contacts', data);
-    }).catch(() => {
-      onUpdate(getLocal('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS));
+  const load = () => {
+    const data = getLocal<ContactItem[]>('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS);
+    data.sort((a: any, b: any) => {
+      const catOrder: any = { 'head_regional': 0, 'sheger_city': 1, 'regional_hotline': 2 };
+      const aOrder = catOrder[a.category] ?? 3;
+      const bOrder = catOrder[b.category] ?? 3;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.name.localeCompare(b.name);
     });
+    onUpdate(data);
   };
-  fetchItems();
-  const interval = setInterval(fetchItems, 10000);
-  return () => clearInterval(interval);
+
+  load();
+
+  const handleStorage = (e: StorageEvent) => {
+    if (e.key === 'eeu-customer-contacts') load();
+  };
+  const handleCustom = () => load();
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('eeu-customer-contacts-updated', handleCustom);
+  }
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('eeu-customer-contacts-updated', handleCustom);
+    }
+  };
 }
 
 export async function addCustomerContactDoc(item: Omit<ContactItem, 'id'>) {
@@ -906,9 +819,9 @@ export async function addCustomerContactDoc(item: Omit<ContactItem, 'id'>) {
   try {
     const existing = getLocal<ContactItem[]>('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS);
     setLocal('eeu-customer-contacts', [...existing, record]);
-  } catch {}
-  try {
-    await fetchApi('/api/customerContacts', { method: 'POST', body: JSON.stringify(record) });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('eeu-customer-contacts-updated'));
+    }
   } catch {}
   return record;
 }
@@ -917,9 +830,9 @@ export async function updateCustomerContactDoc(item: ContactItem) {
   try {
     const existing = getLocal<ContactItem[]>('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS);
     setLocal('eeu-customer-contacts', existing.map(c => c.id === item.id ? item : c));
-  } catch {}
-  try {
-    await fetchApi(`/api/customerContacts/${item.id}`, { method: 'PUT', body: JSON.stringify(item) });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('eeu-customer-contacts-updated'));
+    }
   } catch {}
 }
 
@@ -927,9 +840,9 @@ export async function deleteCustomerContactDoc(id: string) {
   try {
     const existing = getLocal<ContactItem[]>('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS);
     setLocal('eeu-customer-contacts', existing.filter(c => c.id !== id));
-  } catch {}
-  try {
-    await fetchApi(`/api/customerContacts/${id}`, { method: 'DELETE' });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('eeu-customer-contacts-updated'));
+    }
   } catch {}
 }
 
@@ -969,21 +882,9 @@ export function subscribeToTeamLeaders(onUpdate: (items: TeamLeaderUser[]) => vo
   };
 
   const fetchFallback = () => {
-    fetchApi('/api/teamLeaders').then(data => {
-      if (Array.isArray(data) && data.length > 0) {
-        data.sort((a: any, b: any) => a.name.localeCompare(b.name));
-        onUpdate(data);
-        setLocal('eeu-team-leaders', data);
-      } else {
-        const fallback = getInitial();
-        fallback.sort((a, b) => a.name.localeCompare(b.name));
-        onUpdate(fallback);
-      }
-    }).catch(() => {
-      const fallback = getInitial();
-      fallback.sort((a, b) => a.name.localeCompare(b.name));
-      onUpdate(fallback);
-    });
+    const fallback = getInitial();
+    fallback.sort((a, b) => a.name.localeCompare(b.name));
+    onUpdate(fallback);
   };
 
   fetchSupabase().then(success => {
@@ -1041,11 +942,6 @@ export async function addTeamLeaderDoc(item: Omit<TeamLeaderUser, 'id' | 'create
     }
   }
 
-  // 3. Backend API sync
-  try {
-    await fetchApi('/api/teamLeaders', { method: 'POST', body: JSON.stringify(record) });
-  } catch {}
-
   return record;
 }
 
@@ -1078,10 +974,6 @@ export async function updateTeamLeaderDoc(item: TeamLeaderUser) {
       console.error('Supabase teamLeader update error:', e);
     }
   }
-
-  try {
-    await fetchApi(`/api/teamLeaders/${item.id}`, { method: 'PUT', body: JSON.stringify(record) });
-  } catch {}
 }
 
 export async function deleteTeamLeaderDoc(id: string) {
@@ -1102,10 +994,6 @@ export async function deleteTeamLeaderDoc(id: string) {
       console.error('Supabase teamLeader delete error:', e);
     }
   }
-
-  try {
-    await fetchApi(`/api/teamLeaders/${id}`, { method: 'DELETE' });
-  } catch {}
 }
 
 export interface FeedbackRecord {
@@ -1136,7 +1024,8 @@ export async function addFeedbackDoc(feedback: {
     timestamp: new Date().toISOString()
   };
   try {
-    await fetchApi('/api/feedbacks', { method: 'POST', body: JSON.stringify(record) });
+    const existing = getLocal<FeedbackRecord[]>('eeu-feedback-records', []);
+    setLocal('eeu-feedback-records', [record, ...existing]);
   } catch {}
   return record;
 }
