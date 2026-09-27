@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
@@ -121,7 +122,6 @@ async function initServerDatabase() {
     if (!tlErr && Array.isArray(tlData) && tlData.length > 0) {
       db.teamLeaders = tlData;
     } else if (!tlErr && (!tlData || tlData.length === 0)) {
-      // Seed default team leaders to Supabase
       await supabase.from('teamLeaders').insert(DEFAULT_TEAM_LEADERS);
     }
   } catch {}
@@ -140,7 +140,7 @@ async function initServerDatabase() {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(express.json({ limit: '10mb' }));
 
@@ -185,16 +185,12 @@ async function startServer() {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
-    // Flush headers
     res.flushHeaders?.();
 
-    // Add to active clients pool
     sseClients.add(res);
 
-    // Initial connection acknowledgment
     res.write(`data: ${JSON.stringify({ topic: "connected", timestamp: Date.now() })}\n\n`);
 
-    // Keepalive heartbeat every 20 seconds to prevent corporate firewall timeouts
     const heartbeat = setInterval(() => {
       try {
         res.write(`: ping\n\n`);
@@ -224,8 +220,11 @@ async function startServer() {
         db.interruptions = data;
         return res.json(data);
       }
+      if (error) {
+        console.warn('[Proxy GET /interruptions Supabase warning]:', error.message);
+      }
     } catch (err: any) {
-      console.warn('[Proxy GET /interruptions fallback]:', err?.message);
+      console.warn('[Proxy GET /interruptions fallback error]:', err?.message);
     }
     // Return resilient memory database
     res.json(db.interruptions);
@@ -233,19 +232,34 @@ async function startServer() {
 
   app.post("/api/interruptions", async (req, res) => {
     const item = { ...req.body };
-    const id = item.id || `f-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const id = (item.id || '').trim() || `f-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const timestampStr = new Date().toLocaleString('en-US', {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true
     });
 
-    const record = {
-      ...item,
+    // Explicitly map ONLY the exact columns in Supabase interruptions table schema
+    // Guarantees non-null string values so PostgreSQL constraints never reject the write
+    const supabaseRecord = {
       id,
+      feederName: (item.feederName || '').trim() || 'Feeder Line',
+      district: (item.district || '').trim() || 'Team A',
+      type: item.type || 'Earth Fault',
+      status: item.status || 'Active',
+      startTime: item.startTime || timestampStr,
+      estimatedRestorationTime: item.estimatedRestorationTime || 'N/A',
+      affectedArea: item.affectedArea || '',
+      remark: item.remark || '',
       lastUpdated: item.lastUpdated || timestampStr
     };
 
-    // Update memory cache
-    db.interruptions = [record, ...db.interruptions.filter(i => i.id !== id)];
+    // Client response and memory object includes direction for UI display
+    const clientRecord = {
+      ...supabaseRecord,
+      direction: item.direction || 'North'
+    };
+
+    // Update server memory cache immediately
+    db.interruptions = [clientRecord, ...db.interruptions.filter(i => i.id !== id)];
 
     // Create system notification
     const noti = {
@@ -253,29 +267,30 @@ async function startServer() {
       feederId: id,
       type: 'new',
       title: 'New Feeder Added',
-      message: `${record.feederName} (${record.district}) logged under ${record.status}. Affected: ${record.affectedArea || 'N/A'}`,
+      message: `${supabaseRecord.feederName} (${supabaseRecord.district}) logged under ${supabaseRecord.status}. Affected: ${supabaseRecord.affectedArea || 'N/A'}`,
       timestamp: timestampStr,
       read: false
     };
     db.notifications = [noti, ...db.notifications];
 
-    // Forward to Supabase asynchronously
+    // Save directly to Supabase
     try {
-      let { error: insErr } = await supabase.from('interruptions').insert(record);
-      if (insErr && insErr.message && insErr.message.toLowerCase().includes('direction')) {
-        const { direction, ...compatRecord } = record;
-        await supabase.from('interruptions').insert(compatRecord);
+      const { error: insErr } = await supabase.from('interruptions').insert(supabaseRecord);
+      if (insErr) {
+        console.error('[Supabase Insert Error]:', insErr);
+      } else {
+        console.log(`[Supabase Insert Success]: ${id} - ${supabaseRecord.feederName}`);
       }
       await supabase.from('notifications').insert(noti);
     } catch (err: any) {
-      console.warn('[Proxy POST /interruptions Supabase error]:', err?.message);
+      console.error('[Proxy POST /interruptions Supabase Exception]:', err?.message);
     }
 
-    // Push real-time update to all 50 agent terminals instantly
-    broadcastSse("interruptions", record);
+    // Push real-time update to all connected agent terminals instantly
+    broadcastSse("interruptions", clientRecord);
     broadcastSse("notifications", noti);
 
-    res.json(record);
+    res.json(clientRecord);
   });
 
   app.put("/api/interruptions/:id", async (req, res) => {
@@ -285,17 +300,30 @@ async function startServer() {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true
     });
 
+    // Clean payload with ONLY columns existing in Supabase table
+    const updatePayload: Record<string, any> = {
+      lastUpdated: timestampStr
+    };
+    if (req.body.feederName !== undefined) updatePayload.feederName = (req.body.feederName || '').trim() || 'Feeder Line';
+    if (req.body.district !== undefined) updatePayload.district = req.body.district;
+    if (req.body.type !== undefined) updatePayload.type = req.body.type;
+    if (req.body.status !== undefined) updatePayload.status = req.body.status;
+    if (req.body.startTime !== undefined) updatePayload.startTime = req.body.startTime || timestampStr;
+    if (req.body.estimatedRestorationTime !== undefined) updatePayload.estimatedRestorationTime = req.body.estimatedRestorationTime || 'N/A';
+    if (req.body.affectedArea !== undefined) updatePayload.affectedArea = req.body.affectedArea || '';
+    if (req.body.remark !== undefined) updatePayload.remark = req.body.remark || '';
+
     const updated = {
       ...(existing || {}),
-      ...req.body,
-      id,
-      lastUpdated: timestampStr
+      ...updatePayload,
+      direction: req.body.direction || existing?.direction || 'North',
+      id
     };
 
     // Check if status changed to RESTORED or updated
     let changeNoti: any = null;
     if (req.body.status && existing && req.body.status !== existing.status) {
-      const isRestored = req.body.status === 'RESTORED' || req.body.status === 'Resolved';
+      const isRestored = req.body.status === 'RESTORED' || req.body.status === 'Restored' || req.body.status === 'Resolved';
       changeNoti = {
         id: `n-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         feederId: id,
@@ -320,18 +348,17 @@ async function startServer() {
 
     // Forward to Supabase
     try {
-      const updatePayload: Record<string, any> = { ...req.body, lastUpdated: timestampStr };
-      delete updatePayload.id;
-      let { error: updErr } = await supabase.from('interruptions').update(updatePayload).eq('id', id);
-      if (updErr && updErr.message && updErr.message.toLowerCase().includes('direction')) {
-        delete updatePayload.direction;
-        await supabase.from('interruptions').update(updatePayload).eq('id', id);
+      const { error: updErr } = await supabase.from('interruptions').update(updatePayload).eq('id', id);
+      if (updErr) {
+        console.error('[Supabase Update Error]:', updErr);
+      } else {
+        console.log(`[Supabase Update Success]: ${id} -> status: ${updated.status}`);
       }
       if (changeNoti) {
         await supabase.from('notifications').insert(changeNoti);
       }
     } catch (err: any) {
-      console.warn('[Proxy PUT /interruptions Supabase error]:', err?.message);
+      console.error('[Proxy PUT /interruptions Supabase Exception]:', err?.message);
     }
 
     // Push real-time event to all agents
@@ -748,10 +775,12 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   }
 
   app.listen(PORT, "0.0.0.0", () => {
