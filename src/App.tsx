@@ -3,7 +3,7 @@ import {
   Zap, Menu, X, ShieldAlert, CheckCircle2, AlertTriangle, 
   Settings, RefreshCw, Layers, LayoutGrid, Clock, LogOut, Sun, Moon,
   Headset, ShieldCheck, UserCheck, KeyRound, Eye, EyeOff, MessageCircle,
-  Copy, Check, Server
+  Copy, Check
 } from 'lucide-react';
 
 // Context
@@ -42,9 +42,7 @@ import {
   updateTeamLeaderDoc,
   deleteTeamLeaderDoc,
   DEFAULT_TEAM_LEADERS,
-  getLocal,
-  isGitHubPagesDeployment,
-  getApiBaseUrl
+  getLocal
 } from './lib/apiService';
 import { HubRecord, HUB_RECORDS } from './data/hubData';
 
@@ -64,7 +62,6 @@ import CustomerContacts from './components/CustomerContacts';
 import EEULogo from './components/EEULogo';
 import WebLoginScreen from './components/WebLoginScreen';
 import FeedbackModal from './components/FeedbackModal';
-import { ProxyConfigModal } from './components/ProxyConfigModal';
 
 export default function App() {
   // 1. Theme State (strictly light mode)
@@ -75,9 +72,6 @@ export default function App() {
 
   // Feedback Modal State
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState<boolean>(false);
-  const [isProxyModalOpen, setIsProxyModalOpen] = useState<boolean>(false);
-  const isGhPages = isGitHubPagesDeployment();
-  const currentProxyUrl = getApiBaseUrl();
 
   // 2. Data State
   const {
@@ -618,15 +612,6 @@ export default function App() {
             </button>
 
             <button
-              id="mob-nav-proxy"
-              onClick={() => { setIsProxyModalOpen(true); setMobileMenuOpen(false); }}
-              className="w-full p-2.5 rounded-lg text-xs font-semibold flex items-center gap-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-900 cursor-pointer"
-            >
-              <Server className="w-4 h-4 text-eeu-green" />
-              <span>Backend Proxy (GitHub Pages)</span>
-            </button>
-
-            <button
               id="mob-web-logout-btn"
               onClick={() => { handleLogoutWeb(); setMobileMenuOpen(false); }}
               className="w-full mt-2 py-2 text-center text-xs font-bold text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-800 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-900 cursor-pointer"
@@ -681,21 +666,6 @@ export default function App() {
 
               {/* User Profile Pill Card & Action Buttons */}
               <div className="flex items-center gap-2.5">
-                {/* Backend Proxy Config Button */}
-                <button
-                  id="header-proxy-btn"
-                  onClick={() => setIsProxyModalOpen(true)}
-                  title="Configure Backend Proxy for GitHub Pages"
-                  className={`relative h-10 px-3 rounded-full bg-white dark:bg-gray-900 border ${
-                    isGhPages && !currentProxyUrl 
-                      ? 'border-amber-400 text-amber-700 bg-amber-50/50 animate-pulse' 
-                      : 'border-gray-200/80 dark:border-gray-800 text-slate-700 dark:text-slate-200 hover:text-eeu-green'
-                  } shadow-xs hover:shadow flex items-center gap-1.5 text-xs font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 transition-all cursor-pointer shrink-0`}
-                >
-                  <Server className={`w-3.5 h-3.5 ${isGhPages && !currentProxyUrl ? 'text-amber-600' : 'text-eeu-green'}`} />
-                  <span>{isGhPages && !currentProxyUrl ? 'Setup Proxy' : 'Proxy'}</span>
-                </button>
-
                 {/* Feedback Button */}
                 <button
                   id="header-feedback-btn"
@@ -726,31 +696,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-
-            {/* GITHUB PAGES PROXY WARNING BANNER */}
-            {isGhPages && !currentProxyUrl && (
-              <div id="github-pages-proxy-banner" className="p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/80 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 animate-in slide-in-from-top-3">
-                <div className="flex items-start gap-3">
-                  <Server className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-bold text-amber-900 dark:text-white">
-                      GitHub Pages Mode: Backend proxy URL is not configured
-                    </p>
-                    <p className="text-amber-700 dark:text-amber-300 mt-0.5">
-                      GitHub Pages is static and has no Node backend. Connect your free Render or Cloudflare proxy so added interruptions sync across all company computers without IT firewall blocks.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => setIsProxyModalOpen(true)}
-                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
-                  >
-                    <span>Configure Proxy</span>
-                  </button>
-                </div>
-              </div>
-            )}
 
             {/* LIVE DATA STATISTICS ROW */}
             {currentTab !== 'hub' && currentTab !== 'admin' && currentTab !== 'notifications' && currentTab !== 'history' && currentTab !== 'contacts' && currentTab !== 'calculator' && currentTab !== 'smartmeter' && currentTab !== 'tariff' && currentTab !== 'sms_generator' && <StatsGrid interruptions={interruptions} />}
@@ -889,13 +834,6 @@ export default function App() {
           onClose={() => setIsFeedbackModalOpen(false)}
           userRole={isAdmin ? 'Admin' : userRole === 'team_leader' ? 'Team Leader' : 'Call Agent'}
           userName={isAdmin ? 'Admin' : currentTeamLeader?.name}
-        />
-
-        {/* PROXY CONFIG MODAL */}
-        <ProxyConfigModal
-          isOpen={isProxyModalOpen}
-          onClose={() => setIsProxyModalOpen(false)}
-          isAdmin={isAdmin}
         />
 
       </div>
