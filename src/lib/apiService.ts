@@ -1,8 +1,6 @@
 import { FeederInterruption, SystemNotification, InterruptionStatus, InterruptionType, TeamLeaderNote, ContactItem, TeamLeaderUser } from '../types';
 import { INITIAL_FEEDERS_LIST, INITIAL_CUSTOMER_CONTACTS } from '../data/mockData';
-import { FEEDERS_VERSION } from '../data/feedersList';
 import { HubRecord, HUB_RECORDS } from '../data/hubData';
-import { supabase, isSupabaseConfigured } from './supabase';
 
 export const DEFAULT_TEAM_LEADERS: TeamLeaderUser[] = [
   { id: 'admin-1', username: 'admin', password: '@Eeu1234', name: 'System Administrator', district: 'Admin', role: 'admin', createdAt: new Date().toISOString() },
@@ -11,27 +9,7 @@ export const DEFAULT_TEAM_LEADERS: TeamLeaderUser[] = [
   { id: 'tl-d', username: 'zz01641821', password: 'eeu1234', name: 'Zekarias Zenebe', district: 'Admin', role: 'admin', createdAt: new Date().toISOString() }
 ];
 
-// Helper to notify UI if RLS policy needs enabling
-function notifyIfRlsError(table: string, error: any) {
-  if (!error) return;
-  console.warn(`[Supabase ${table} Error]:`, error);
-  const msg = (error.message || '').toLowerCase();
-  if (
-    error.code === '42501' ||
-    msg.includes('row-level security') ||
-    msg.includes('violates row-level security') ||
-    msg.includes('permission denied') ||
-    msg.includes('rls')
-  ) {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('supabase-rls-notice', {
-        detail: { table, message: error.message }
-      }));
-    }
-  }
-}
-
-// Local storage persistent fallback helpers
+// Local storage persistent caching helpers
 export function getLocal<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
   try {
@@ -51,7 +29,96 @@ export function setLocal<T>(key: string, data: T) {
   }
 }
 
+// Server API request helper with JSON parsing and fallback error handling
+async function apiRequest<T>(url: string, options?: RequestInit): Promise<T | null> {
+  try {
+    const res = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.headers || {})
+      }
+    });
+    if (!res.ok) {
+      console.warn(`[API Proxy ${options?.method || 'GET'} ${url} returned ${res.status}]`);
+      return null;
+    }
+    return (await res.json()) as T;
+  } catch (err: any) {
+    console.warn(`[API Proxy request failed for ${url}]:`, err?.message);
+    return null;
+  }
+}
+
+// ==========================================
+// REAL-TIME SERVER-SENT EVENTS (SSE) ENGINE
+// Client connects ONLY to application origin /api/events
+// Never connects to supabase.co directly (bypasses IT firewalls!)
+// ==========================================
+const syncListeners = {
+  interruptions: new Set<() => void>(),
+  notifications: new Set<() => void>(),
+  teamLeaders: new Set<() => void>(),
+  teamLeaderNotes: new Set<() => void>(),
+  presetFeeders: new Set<() => void>(),
+  hubRecords: new Set<() => void>(),
+  customerContacts: new Set<() => void>()
+};
+
+let eventSourceInitialized = false;
+let eventSourceInstance: EventSource | null = null;
+
+function initRealtimeEvents() {
+  if (typeof window === 'undefined' || eventSourceInitialized) return;
+  eventSourceInitialized = true;
+
+  const connect = () => {
+    try {
+      if (eventSourceInstance) {
+        eventSourceInstance.close();
+      }
+      eventSourceInstance = new EventSource('/api/events');
+
+      eventSourceInstance.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          const topic = payload?.topic as keyof typeof syncListeners;
+          if (topic && syncListeners[topic]) {
+            syncListeners[topic].forEach(cb => {
+              try { cb(); } catch (err) { console.error('Sync listener error:', err); }
+            });
+          }
+        } catch {
+          // ignore heartbeats or non-json
+        }
+      };
+
+      eventSourceInstance.onerror = () => {
+        eventSourceInstance?.close();
+        // Reconnect after brief pause
+        setTimeout(connect, 4000);
+      };
+    } catch (e) {
+      console.warn('[SSE Connection error]:', e);
+      setTimeout(connect, 5000);
+    }
+  };
+
+  connect();
+}
+
+export function broadcastGlobalSync(topic: keyof typeof syncListeners) {
+  // Trigger local listeners immediately
+  if (syncListeners[topic]) {
+    syncListeners[topic].forEach(cb => {
+      try { cb(); } catch {}
+    });
+  }
+}
+
 export async function seedInitialDataIfEmpty() {
+  initRealtimeEvents();
+
   if (typeof window !== 'undefined') {
     const localTL = getLocal<TeamLeaderUser[]>('eeu-team-leaders', []);
     if (!localTL || localTL.length === 0) {
@@ -71,137 +138,29 @@ export async function seedInitialDataIfEmpty() {
     }
   }
 
-  // Pre-seed Supabase team leaders if table is empty
-  if (isSupabaseConfigured) {
-    try {
-      const { data: existingTL, error } = await supabase.from('teamLeaders').select('id').limit(1);
-      if (!error && (!existingTL || existingTL.length === 0)) {
-        await supabase.from('teamLeaders').insert(DEFAULT_TEAM_LEADERS);
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  const SEED_STORAGE_KEY = 'eeu-local-seeded-v7';
-  if (typeof window !== 'undefined' && localStorage.getItem(SEED_STORAGE_KEY)) {
-    return;
-  }
-
-  // Ensure local storage has initial datasets
-  if (typeof window !== 'undefined') {
-    if (!localStorage.getItem('eeu-feeders-list-v4')) {
-      setLocal('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
-    }
-    if (!localStorage.getItem('eeu-hub-records')) {
-      setLocal('eeu-hub-records', HUB_RECORDS);
-    }
-    if (!localStorage.getItem('eeu-customer-contacts')) {
-      setLocal('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS);
-    }
-    localStorage.setItem(SEED_STORAGE_KEY, 'true');
-  }
+  // Ping server proxy status
+  apiRequest('/api/proxy-status').catch(() => {});
 }
 
 // ==========================================
-// SHARED REALTIME SYNC ENGINE (SUPABASE BROADCAST + POSTGRES CHANGES)
-// ==========================================
-// Broadcast channels work instantly across all connected browsers without needing DB replication!
-let sharedRealtimeChannel: ReturnType<typeof supabase.channel> | null = null;
-const syncListeners = {
-  interruptions: new Set<() => void>(),
-  notifications: new Set<() => void>(),
-  teamLeaders: new Set<() => void>(),
-  teamLeaderNotes: new Set<() => void>(),
-};
-
-export function getSharedRealtimeChannel() {
-  if (!isSupabaseConfigured) return null;
-  if (!sharedRealtimeChannel) {
-    sharedRealtimeChannel = supabase.channel('eeu-global-shared-sync', {
-      config: {
-        broadcast: { ack: false, self: false },
-      },
-    });
-
-    // 1. Instant cross-browser broadcast listener (zero database configuration needed, 100% reliable)
-    sharedRealtimeChannel.on('broadcast', { event: 'EEU_DATA_SYNC' }, (payload: any) => {
-      const topic = payload?.payload?.topic as keyof typeof syncListeners;
-      if (topic && syncListeners[topic]) {
-        syncListeners[topic].forEach(cb => {
-          try { cb(); } catch (err) { console.error('Sync listener error:', err); }
-        });
-      }
-    });
-
-    // 2. Direct PostgreSQL table changes listener (if publication enabled)
-    sharedRealtimeChannel
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'interruptions' }, () => {
-        syncListeners.interruptions.forEach(cb => { try { cb(); } catch {} });
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
-        syncListeners.notifications.forEach(cb => { try { cb(); } catch {} });
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'teamLeaders' }, () => {
-        syncListeners.teamLeaders.forEach(cb => { try { cb(); } catch {} });
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'teamLeaderNotes' }, () => {
-        syncListeners.teamLeaderNotes.forEach(cb => { try { cb(); } catch {} });
-      });
-
-    sharedRealtimeChannel.subscribe((status: string) => {
-      console.log('[Supabase Global Sync Status]:', status);
-    });
-  }
-  return sharedRealtimeChannel;
-}
-
-export function broadcastGlobalSync(topic: 'interruptions' | 'notifications' | 'teamLeaders' | 'teamLeaderNotes', meta?: any) {
-  try {
-    const ch = getSharedRealtimeChannel();
-    if (ch) {
-      ch.send({
-        type: 'broadcast',
-        event: 'EEU_DATA_SYNC',
-        payload: { topic, timestamp: Date.now(), ...meta },
-      }).catch((err: any) => {
-        console.warn('Broadcast send failed:', err);
-      });
-    }
-  } catch (e) {
-    console.warn('broadcastGlobalSync error:', e);
-  }
-}
-
-// ==========================================
-// 1. FEEDER INTERRUPTIONS (SUPABASE + REALTIME)
+// 1. FEEDER INTERRUPTIONS (PROXY + SSE)
 // ==========================================
 
 export function subscribeToInterruptions(onUpdate: (items: FeederInterruption[]) => void) {
+  initRealtimeEvents();
+
   // 1. Immediately emit cached data for instant render
   const cached = getLocal<FeederInterruption[]>('eeu-interruptions', []);
   if (cached && cached.length > 0) {
     onUpdate(cached);
   }
 
-  const fetchSupabase = async () => {
-    if (!isSupabaseConfigured) return false;
-    try {
-      const { data, error } = await supabase
-        .from('interruptions')
-        .select('*')
-        .order('id', { ascending: false });
-
-      if (!error && Array.isArray(data)) {
-        onUpdate(data);
-        setLocal('eeu-interruptions', data);
-        return true;
-      }
-      if (error) {
-        notifyIfRlsError('interruptions', error);
-      }
-    } catch (err) {
-      console.warn('Supabase fetch error for interruptions:', err);
+  const fetchInterruptions = async () => {
+    const data = await apiRequest<FeederInterruption[]>('/api/interruptions');
+    if (data && Array.isArray(data)) {
+      onUpdate(data);
+      setLocal('eeu-interruptions', data);
+      return true;
     }
     return false;
   };
@@ -210,38 +169,35 @@ export function subscribeToInterruptions(onUpdate: (items: FeederInterruption[])
     onUpdate(getLocal('eeu-interruptions', []));
   };
 
-  // Initial load immediately
-  fetchSupabase().then(success => {
+  // Initial load
+  fetchInterruptions().then(success => {
     if (!success) fetchFallback();
   });
 
-  // Register on Shared Realtime Sync
-  getSharedRealtimeChannel();
+  // Listen to SSE updates
   const onSync = () => {
-    fetchSupabase();
+    fetchInterruptions();
   };
   syncListeners.interruptions.add(onSync);
 
-  // Automatic refresh when switching back to this tab/window
+  // Automatic refresh when tab becomes active
   const handleVisibility = () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-      fetchSupabase();
+      fetchInterruptions();
     }
   };
   const handleFocus = () => {
-    fetchSupabase();
+    fetchInterruptions();
   };
   if (typeof window !== 'undefined') {
     window.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('focus', handleFocus);
   }
 
-  // Periodic polling fallback every 3.5 seconds to guarantee cross-tab & cross-device freshness
+  // Periodic polling safety net every 4 seconds
   const interval = setInterval(() => {
-    fetchSupabase().then(success => {
-      if (!success) fetchFallback();
-    });
-  }, 3500);
+    fetchInterruptions();
+  }, 4000);
 
   return () => {
     syncListeners.interruptions.delete(onSync);
@@ -296,28 +252,14 @@ export async function addInterruptionDoc(entry: Omit<FeederInterruption, 'id' | 
     setLocal('eeu-notifications', [newNoti, ...existingNotis]);
   } catch {}
 
-  // 2. Save directly to Supabase
-  if (isSupabaseConfigured) {
-    let { error: insErr } = await supabase.from('interruptions').insert(record);
-    if (insErr && insErr.message && insErr.message.toLowerCase().includes('direction')) {
-      const { direction, ...compatRecord } = record;
-      const retry = await supabase.from('interruptions').insert(compatRecord);
-      insErr = retry.error;
-    }
-    if (insErr) {
-      notifyIfRlsError('interruptions', insErr);
-      throw new Error(insErr.message || 'Supabase write rejected by Row-Level Security');
-    }
+  // 2. Post to server proxy
+  await apiRequest<FeederInterruption>('/api/interruptions', {
+    method: 'POST',
+    body: JSON.stringify(record)
+  });
 
-    const { error: notiErr } = await supabase.from('notifications').insert(newNoti);
-    if (notiErr) {
-      notifyIfRlsError('notifications', notiErr);
-    }
-
-    // Broadcast instant sync event to all other open browsers/devices across the network
-    broadcastGlobalSync('interruptions');
-    broadcastGlobalSync('notifications');
-  }
+  broadcastGlobalSync('interruptions');
+  broadcastGlobalSync('notifications');
 
   return record;
 }
@@ -335,7 +277,6 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
     setLocal('eeu-interruptions', existing.map(i => i.id === id ? { ...i, ...merged } : i));
   } catch {}
 
-  let changeNoti: SystemNotification | null = null;
   if (entry.status && existingRecord?.status && entry.status !== existingRecord.status) {
     const typeVal = entry.status === InterruptionStatus.RESTORED ? 'resolve' : 'update';
     const titleText = entry.status === InterruptionStatus.RESTORED ? 'Feeder Line Restored' : 'Operational Status Changed';
@@ -344,7 +285,7 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
       : `${merged.feederName} reassessed as ${entry.status}. Details: ${entry.remark || merged.remark}`;
 
     const notiId = `n-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    changeNoti = {
+    const changeNoti: SystemNotification = {
       id: notiId,
       feederId: id,
       type: typeVal,
@@ -360,50 +301,14 @@ export async function updateInterruptionDoc(id: string, entry: Partial<FeederInt
     } catch {}
   }
 
-  // 2. Update Supabase with clean explicit columns
-  if (isSupabaseConfigured) {
-    const updatePayload: Record<string, any> = {
-      lastUpdated: timestampStr
-    };
-    if (entry.status !== undefined) updatePayload.status = entry.status;
-    if (entry.remark !== undefined) updatePayload.remark = entry.remark;
-    if (entry.estimatedRestorationTime !== undefined) updatePayload.estimatedRestorationTime = entry.estimatedRestorationTime;
-    if (entry.feederName !== undefined) updatePayload.feederName = entry.feederName;
-    if (entry.district !== undefined) updatePayload.district = entry.district;
-    if (entry.type !== undefined) updatePayload.type = entry.type;
-    if (entry.startTime !== undefined) updatePayload.startTime = entry.startTime;
-    if (entry.affectedArea !== undefined) updatePayload.affectedArea = entry.affectedArea;
-    if (entry.direction !== undefined) updatePayload.direction = entry.direction;
+  // 2. Send update to server proxy
+  await apiRequest(`/api/interruptions/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ ...entry, lastUpdated: timestampStr })
+  });
 
-    let { error: updErr } = await supabase.from('interruptions').update(updatePayload).eq('id', id);
-    if (updErr && updErr.message && updErr.message.toLowerCase().includes('direction')) {
-      const { direction, ...compatPayload } = updatePayload;
-      const retry = await supabase.from('interruptions').update(compatPayload).eq('id', id);
-      updErr = retry.error;
-    }
-    if (updErr) {
-      notifyIfRlsError('interruptions', updErr);
-      throw new Error(updErr.message || 'Supabase update rejected by Row-Level Security');
-    }
-
-    // Instant broadcast of update to all terminals
-    broadcastGlobalSync('interruptions');
-
-    if (changeNoti) {
-      // Fire-and-forget notification insertion so it never blocks UI responsiveness
-      (async () => {
-        try {
-          const { error: notiErr } = await supabase.from('notifications').insert(changeNoti);
-          if (notiErr) {
-            notifyIfRlsError('notifications', notiErr);
-          }
-          broadcastGlobalSync('notifications');
-        } catch {
-          // Ignore background failures
-        }
-      })();
-    }
-  }
+  broadcastGlobalSync('interruptions');
+  broadcastGlobalSync('notifications');
 }
 
 export async function deleteInterruptionDoc(id: string) {
@@ -412,37 +317,32 @@ export async function deleteInterruptionDoc(id: string) {
     setLocal('eeu-interruptions', existing.filter(i => i.id !== id));
   } catch {}
 
-  if (isSupabaseConfigured) {
-    const { error } = await supabase.from('interruptions').delete().eq('id', id);
-    if (error) {
-      notifyIfRlsError('interruptions', error);
-      throw new Error(error.message || 'Supabase delete rejected by Row-Level Security');
-    }
-    // Instant broadcast deletion to all connected browsers
-    broadcastGlobalSync('interruptions');
-  }
+  await apiRequest(`/api/interruptions/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
+
+  broadcastGlobalSync('interruptions');
 }
 
 // ==========================================
-// 2. NOTIFICATIONS (SUPABASE + REALTIME)
+// 2. NOTIFICATIONS (PROXY + SSE)
 // ==========================================
 
 export function subscribeToNotifications(onUpdate: (items: SystemNotification[]) => void) {
+  initRealtimeEvents();
+
   const cached = getLocal<SystemNotification[]>('eeu-notifications', []);
   if (cached && cached.length > 0) {
     onUpdate(cached);
   }
 
-  const fetchSupabase = async () => {
-    if (!isSupabaseConfigured) return false;
-    try {
-      const { data, error } = await supabase.from('notifications').select('*').order('timestamp', { ascending: false });
-      if (!error && Array.isArray(data)) {
-        onUpdate(data);
-        setLocal('eeu-notifications', data);
-        return true;
-      }
-    } catch {}
+  const fetchNotifications = async () => {
+    const data = await apiRequest<SystemNotification[]>('/api/notifications');
+    if (data && Array.isArray(data)) {
+      onUpdate(data);
+      setLocal('eeu-notifications', data);
+      return true;
+    }
     return false;
   };
 
@@ -450,19 +350,18 @@ export function subscribeToNotifications(onUpdate: (items: SystemNotification[])
     onUpdate(getLocal('eeu-notifications', []));
   };
 
-  fetchSupabase().then(success => {
+  fetchNotifications().then(success => {
     if (!success) fetchFallback();
   });
 
-  getSharedRealtimeChannel();
   const onSync = () => {
-    fetchSupabase();
+    fetchNotifications();
   };
   syncListeners.notifications.add(onSync);
 
   const handleVisibility = () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-      fetchSupabase();
+      fetchNotifications();
     }
   };
   if (typeof window !== 'undefined') {
@@ -470,10 +369,8 @@ export function subscribeToNotifications(onUpdate: (items: SystemNotification[])
   }
 
   const interval = setInterval(() => {
-    fetchSupabase().then(success => {
-      if (!success) fetchFallback();
-    });
-  }, 4000);
+    fetchNotifications();
+  }, 4500);
 
   return () => {
     syncListeners.notifications.delete(onSync);
@@ -490,11 +387,8 @@ export async function markAllNotificationsAsReadDoc() {
     setLocal('eeu-notifications', existing.map(n => ({ ...n, read: true })));
   } catch {}
 
-  if (isSupabaseConfigured) {
-    try {
-      await supabase.from('notifications').update({ read: true }).neq('id', '');
-    } catch {}
-  }
+  await apiRequest('/api/notifications/read-all', { method: 'PUT' });
+  broadcastGlobalSync('notifications');
 }
 
 export async function markOneNotificationAsReadDoc(id: string) {
@@ -503,11 +397,8 @@ export async function markOneNotificationAsReadDoc(id: string) {
     setLocal('eeu-notifications', existing.map(n => n.id === id ? { ...n, read: true } : n));
   } catch {}
 
-  if (isSupabaseConfigured) {
-    try {
-      await supabase.from('notifications').update({ read: true }).eq('id', id);
-    } catch {}
-  }
+  await apiRequest(`/api/notifications/${encodeURIComponent(id)}/read`, { method: 'PUT' });
+  broadcastGlobalSync('notifications');
 }
 
 export async function clearAllNotificationsDoc() {
@@ -515,28 +406,40 @@ export async function clearAllNotificationsDoc() {
     setLocal('eeu-notifications', []);
   } catch {}
 
-  if (isSupabaseConfigured) {
-    try {
-      await supabase.from('notifications').delete().neq('id', '');
-    } catch {}
-  }
+  await apiRequest('/api/notifications', { method: 'DELETE' });
+  broadcastGlobalSync('notifications');
 }
 
 // ==========================================
-// 3. PRESET FEEDERS LIST
+// 3. PRESET FEEDERS LIST (PROXY + SYNC)
 // ==========================================
 
 export function subscribeToFeedersList(onUpdate: (items: string[]) => void) {
-  const load = () => {
+  initRealtimeEvents();
+
+  const loadLocal = () => {
     const data = getLocal<string[]>('eeu-feeders-list-v4', INITIAL_FEEDERS_LIST);
     onUpdate(data);
   };
-  load();
+  loadLocal();
+
+  const fetchFeeders = async () => {
+    const data = await apiRequest<string[]>('/api/presetFeeders');
+    if (data && Array.isArray(data) && data.length > 0) {
+      setLocal('eeu-feeders-list-v4', data);
+      onUpdate(data);
+    }
+  };
+
+  fetchFeeders();
+
+  const onSync = () => fetchFeeders();
+  syncListeners.presetFeeders.add(onSync);
 
   const handleStorage = (e: StorageEvent) => {
-    if (e.key === 'eeu-feeders-list-v4') load();
+    if (e.key === 'eeu-feeders-list-v4') loadLocal();
   };
-  const handleCustom = () => load();
+  const handleCustom = () => loadLocal();
 
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', handleStorage);
@@ -544,6 +447,7 @@ export function subscribeToFeedersList(onUpdate: (items: string[]) => void) {
   }
 
   return () => {
+    syncListeners.presetFeeders.delete(onSync);
     if (typeof window !== 'undefined') {
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener('eeu-feeders-updated', handleCustom);
@@ -560,6 +464,11 @@ export async function addPresetFeederDoc(feederStr: string) {
       window.dispatchEvent(new CustomEvent('eeu-feeders-updated'));
     }
   } catch {}
+
+  await apiRequest('/api/presetFeeders', {
+    method: 'POST',
+    body: JSON.stringify({ feederStr })
+  });
 }
 
 export async function deletePresetFeederDoc(feederStr: string) {
@@ -571,6 +480,10 @@ export async function deletePresetFeederDoc(feederStr: string) {
       window.dispatchEvent(new CustomEvent('eeu-feeders-updated'));
     }
   } catch {}
+
+  await apiRequest(`/api/presetFeeders/${encodeURIComponent(feederStr)}`, {
+    method: 'DELETE'
+  });
 }
 
 export async function updatePresetFeederDoc(oldFeederStr: string, newFeederStr: string) {
@@ -582,6 +495,11 @@ export async function updatePresetFeederDoc(oldFeederStr: string, newFeederStr: 
       window.dispatchEvent(new CustomEvent('eeu-feeders-updated'));
     }
   } catch {}
+
+  await apiRequest('/api/presetFeeders', {
+    method: 'PUT',
+    body: JSON.stringify({ oldFeederStr, newFeederStr })
+  });
 }
 
 export async function resetAllPresetFeedersToMaster() {
@@ -591,14 +509,21 @@ export async function resetAllPresetFeedersToMaster() {
       window.dispatchEvent(new CustomEvent('eeu-feeders-updated'));
     }
   } catch {}
+
+  await apiRequest('/api/presetFeeders/bulk', {
+    method: 'POST',
+    body: JSON.stringify({ feeders: INITIAL_FEEDERS_LIST })
+  });
 }
 
 // ==========================================
-// 4. HUB RECORDS
+// 4. HUB RECORDS (PROXY + SYNC)
 // ==========================================
 
 export function subscribeToHubRecords(onUpdate: (items: HubRecord[]) => void) {
-  const load = () => {
+  initRealtimeEvents();
+
+  const loadLocal = () => {
     const stored = getLocal<HubRecord[]>('eeu-hub-records', HUB_RECORDS);
     const baseMap = new Map<number, HubRecord>();
     HUB_RECORDS.forEach(r => baseMap.set(r.no, { ...r }));
@@ -614,12 +539,25 @@ export function subscribeToHubRecords(onUpdate: (items: HubRecord[]) => void) {
     onUpdate(merged);
   };
 
-  load();
+  loadLocal();
+
+  const fetchHubRecords = async () => {
+    const data = await apiRequest<HubRecord[]>('/api/hubRecords');
+    if (data && Array.isArray(data) && data.length > 0) {
+      setLocal('eeu-hub-records', data);
+      onUpdate(data);
+    }
+  };
+
+  fetchHubRecords();
+
+  const onSync = () => fetchHubRecords();
+  syncListeners.hubRecords.add(onSync);
 
   const handleStorage = (e: StorageEvent) => {
-    if (e.key === 'eeu-hub-records') load();
+    if (e.key === 'eeu-hub-records') loadLocal();
   };
-  const handleCustom = () => load();
+  const handleCustom = () => loadLocal();
 
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', handleStorage);
@@ -627,6 +565,7 @@ export function subscribeToHubRecords(onUpdate: (items: HubRecord[]) => void) {
   }
 
   return () => {
+    syncListeners.hubRecords.delete(onSync);
     if (typeof window !== 'undefined') {
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener('eeu-hub-records-updated', handleCustom);
@@ -643,6 +582,11 @@ export async function updateHubRecordDoc(record: HubRecord) {
       window.dispatchEvent(new CustomEvent('eeu-hub-records-updated'));
     }
   } catch {}
+
+  await apiRequest(`/api/hubRecords/${record.no}`, {
+    method: 'PUT',
+    body: JSON.stringify(record)
+  });
 }
 
 export async function resetHubRecordsToDefaultDoc() {
@@ -650,28 +594,29 @@ export async function resetHubRecordsToDefaultDoc() {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('eeu-hub-records-updated'));
   }
+
+  await apiRequest('/api/hubRecords/reset', { method: 'POST' });
 }
 
 // ==========================================
-// 5. TEAM LEADER NOTES (SUPABASE + REALTIME)
+// 5. TEAM LEADER NOTES (PROXY + SSE)
 // ==========================================
 
 export function subscribeToTeamLeaderNotes(onUpdate: (items: TeamLeaderNote[]) => void) {
+  initRealtimeEvents();
+
   const cached = getLocal<TeamLeaderNote[]>('eeu-team-leader-notes', []);
   if (cached && cached.length > 0) {
     onUpdate(cached);
   }
 
-  const fetchSupabase = async () => {
-    if (!isSupabaseConfigured) return false;
-    try {
-      const { data, error } = await supabase.from('teamLeaderNotes').select('*');
-      if (!error && Array.isArray(data)) {
-        onUpdate(data);
-        setLocal('eeu-team-leader-notes', data);
-        return true;
-      }
-    } catch {}
+  const fetchNotes = async () => {
+    const data = await apiRequest<TeamLeaderNote[]>('/api/teamLeaderNotes');
+    if (data && Array.isArray(data)) {
+      onUpdate(data);
+      setLocal('eeu-team-leader-notes', data);
+      return true;
+    }
     return false;
   };
 
@@ -679,21 +624,16 @@ export function subscribeToTeamLeaderNotes(onUpdate: (items: TeamLeaderNote[]) =
     onUpdate(getLocal('eeu-team-leader-notes', []));
   };
 
-  fetchSupabase().then(success => {
+  fetchNotes().then(success => {
     if (!success) fetchFallback();
   });
 
-  getSharedRealtimeChannel();
-  const onSync = () => {
-    fetchSupabase();
-  };
+  const onSync = () => fetchNotes();
   syncListeners.teamLeaderNotes.add(onSync);
 
   const interval = setInterval(() => {
-    fetchSupabase().then(success => {
-      if (!success) fetchFallback();
-    });
-  }, 4000);
+    fetchNotes();
+  }, 4500);
 
   return () => {
     syncListeners.teamLeaderNotes.delete(onSync);
@@ -713,16 +653,12 @@ export async function addTeamLeaderNoteDoc(content: string, author: string, isUr
     setLocal('eeu-team-leader-notes', [record, ...existing]);
   } catch {}
 
-  if (isSupabaseConfigured) {
-    try {
-      const { error } = await supabase.from('teamLeaderNotes').insert(record);
-      notifyIfRlsError('teamLeaderNotes', error);
-      broadcastGlobalSync('teamLeaderNotes');
-    } catch (e) {
-      console.error('Supabase note insert error:', e);
-    }
-  }
+  await apiRequest('/api/teamLeaderNotes', {
+    method: 'POST',
+    body: JSON.stringify(record)
+  });
 
+  broadcastGlobalSync('teamLeaderNotes');
   return record;
 }
 
@@ -735,15 +671,12 @@ export async function updateTeamLeaderNoteDoc(id: string, content: string, isUrg
     setLocal('eeu-team-leader-notes', existing.map(n => n.id === id ? { ...n, content, isUrgent, timestamp: timestampStr } : n));
   } catch {}
 
-  if (isSupabaseConfigured) {
-    try {
-      const { error } = await supabase.from('teamLeaderNotes').update({ content, isUrgent, timestamp: timestampStr }).eq('id', id);
-      notifyIfRlsError('teamLeaderNotes', error);
-      broadcastGlobalSync('teamLeaderNotes');
-    } catch (e) {
-      console.error('Supabase note update error:', e);
-    }
-  }
+  await apiRequest(`/api/teamLeaderNotes/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content, isUrgent, timestamp: timestampStr })
+  });
+
+  broadcastGlobalSync('teamLeaderNotes');
 }
 
 export async function deleteTeamLeaderNoteDoc(id: string) {
@@ -752,15 +685,11 @@ export async function deleteTeamLeaderNoteDoc(id: string) {
     setLocal('eeu-team-leader-notes', existing.filter(n => n.id !== id));
   } catch {}
 
-  if (isSupabaseConfigured) {
-    try {
-      const { error } = await supabase.from('teamLeaderNotes').delete().eq('id', id);
-      notifyIfRlsError('teamLeaderNotes', error);
-      broadcastGlobalSync('teamLeaderNotes');
-    } catch (e) {
-      console.error('Supabase note delete error:', e);
-    }
-  }
+  await apiRequest(`/api/teamLeaderNotes/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
+
+  broadcastGlobalSync('teamLeaderNotes');
 }
 
 export async function clearTeamLeaderNotes() {
@@ -768,20 +697,18 @@ export async function clearTeamLeaderNotes() {
     setLocal('eeu-team-leader-notes', []);
   } catch {}
 
-  if (isSupabaseConfigured) {
-    try {
-      await supabase.from('teamLeaderNotes').delete().neq('id', '');
-      broadcastGlobalSync('teamLeaderNotes');
-    } catch {}
-  }
+  await apiRequest('/api/teamLeaderNotes', { method: 'DELETE' });
+  broadcastGlobalSync('teamLeaderNotes');
 }
 
 // ==========================================
-// 6. CUSTOMER CONTACTS
+// 6. CUSTOMER CONTACTS (PROXY + SYNC)
 // ==========================================
 
 export function subscribeToCustomerContacts(onUpdate: (items: ContactItem[]) => void) {
-  const load = () => {
+  initRealtimeEvents();
+
+  const loadLocal = () => {
     const data = getLocal<ContactItem[]>('eeu-customer-contacts', INITIAL_CUSTOMER_CONTACTS);
     data.sort((a: any, b: any) => {
       const catOrder: any = { 'head_regional': 0, 'sheger_city': 1, 'regional_hotline': 2 };
@@ -793,12 +720,25 @@ export function subscribeToCustomerContacts(onUpdate: (items: ContactItem[]) => 
     onUpdate(data);
   };
 
-  load();
+  loadLocal();
+
+  const fetchContacts = async () => {
+    const data = await apiRequest<ContactItem[]>('/api/customerContacts');
+    if (data && Array.isArray(data) && data.length > 0) {
+      setLocal('eeu-customer-contacts', data);
+      loadLocal();
+    }
+  };
+
+  fetchContacts();
+
+  const onSync = () => fetchContacts();
+  syncListeners.customerContacts.add(onSync);
 
   const handleStorage = (e: StorageEvent) => {
-    if (e.key === 'eeu-customer-contacts') load();
+    if (e.key === 'eeu-customer-contacts') loadLocal();
   };
-  const handleCustom = () => load();
+  const handleCustom = () => loadLocal();
 
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', handleStorage);
@@ -806,6 +746,7 @@ export function subscribeToCustomerContacts(onUpdate: (items: ContactItem[]) => 
   }
 
   return () => {
+    syncListeners.customerContacts.delete(onSync);
     if (typeof window !== 'undefined') {
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener('eeu-customer-contacts-updated', handleCustom);
@@ -823,6 +764,12 @@ export async function addCustomerContactDoc(item: Omit<ContactItem, 'id'>) {
       window.dispatchEvent(new CustomEvent('eeu-customer-contacts-updated'));
     }
   } catch {}
+
+  await apiRequest('/api/customerContacts', {
+    method: 'POST',
+    body: JSON.stringify(record)
+  });
+
   return record;
 }
 
@@ -834,6 +781,11 @@ export async function updateCustomerContactDoc(item: ContactItem) {
       window.dispatchEvent(new CustomEvent('eeu-customer-contacts-updated'));
     }
   } catch {}
+
+  await apiRequest(`/api/customerContacts/${encodeURIComponent(item.id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(item)
+  });
 }
 
 export async function deleteCustomerContactDoc(id: string) {
@@ -844,13 +796,19 @@ export async function deleteCustomerContactDoc(id: string) {
       window.dispatchEvent(new CustomEvent('eeu-customer-contacts-updated'));
     }
   } catch {}
+
+  await apiRequest(`/api/customerContacts/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
 }
 
 // ==========================================
-// 7. TEAM LEADERS & USERS (SUPABASE + REALTIME)
+// 7. TEAM LEADERS & USERS (PROXY + SSE)
 // ==========================================
 
 export function subscribeToTeamLeaders(onUpdate: (items: TeamLeaderUser[]) => void) {
+  initRealtimeEvents();
+
   const getInitial = (): TeamLeaderUser[] => {
     const stored = getLocal<TeamLeaderUser[]>('eeu-team-leaders', []);
     if (!stored || stored.length === 0) {
@@ -860,24 +818,17 @@ export function subscribeToTeamLeaders(onUpdate: (items: TeamLeaderUser[]) => vo
     return stored;
   };
 
-  // Immediate cached render
   const initial = getInitial();
   onUpdate(initial);
 
-  const fetchSupabase = async () => {
-    if (!isSupabaseConfigured) return false;
-    try {
-      const { data, error } = await supabase.from('teamLeaders').select('*');
-      if (!error && Array.isArray(data) && data.length > 0) {
-        data.sort((a: any, b: any) => a.name.localeCompare(b.name));
-        onUpdate(data);
-        setLocal('eeu-team-leaders', data);
-        return true;
-      }
-      if (error) {
-        notifyIfRlsError('teamLeaders', error);
-      }
-    } catch {}
+  const fetchTeamLeaders = async () => {
+    const data = await apiRequest<TeamLeaderUser[]>('/api/teamLeaders');
+    if (data && Array.isArray(data) && data.length > 0) {
+      data.sort((a: any, b: any) => a.name.localeCompare(b.name));
+      onUpdate(data);
+      setLocal('eeu-team-leaders', data);
+      return true;
+    }
     return false;
   };
 
@@ -887,21 +838,16 @@ export function subscribeToTeamLeaders(onUpdate: (items: TeamLeaderUser[]) => vo
     onUpdate(fallback);
   };
 
-  fetchSupabase().then(success => {
+  fetchTeamLeaders().then(success => {
     if (!success) fetchFallback();
   });
 
-  getSharedRealtimeChannel();
-  const onSync = () => {
-    fetchSupabase();
-  };
+  const onSync = () => fetchTeamLeaders();
   syncListeners.teamLeaders.add(onSync);
 
   const interval = setInterval(() => {
-    fetchSupabase().then(success => {
-      if (!success) fetchFallback();
-    });
-  }, 4000);
+    fetchTeamLeaders();
+  }, 4500);
 
   return () => {
     syncListeners.teamLeaders.delete(onSync);
@@ -922,7 +868,6 @@ export async function addTeamLeaderDoc(item: Omit<TeamLeaderUser, 'id' | 'create
   };
   if (typeof item.mustChangePassword === 'boolean') record.mustChangePassword = item.mustChangePassword;
 
-  // 1. Local storage immediate save
   try {
     const existing = getLocal<TeamLeaderUser[]>('eeu-team-leaders', DEFAULT_TEAM_LEADERS);
     const updated = [...existing.filter(tl => tl.id !== record.id), record];
@@ -931,17 +876,12 @@ export async function addTeamLeaderDoc(item: Omit<TeamLeaderUser, 'id' | 'create
     console.error('Failed to save team leader to localStorage:', err);
   }
 
-  // 2. Supabase save
-  if (isSupabaseConfigured) {
-    try {
-      const { error } = await supabase.from('teamLeaders').insert(record);
-      notifyIfRlsError('teamLeaders', error);
-      broadcastGlobalSync('teamLeaders');
-    } catch (e) {
-      console.error('Supabase teamLeader insert error:', e);
-    }
-  }
+  await apiRequest('/api/teamLeaders', {
+    method: 'POST',
+    body: JSON.stringify(record)
+  });
 
+  broadcastGlobalSync('teamLeaders');
   return record;
 }
 
@@ -965,15 +905,12 @@ export async function updateTeamLeaderDoc(item: TeamLeaderUser) {
     console.error('Failed to update team leader in localStorage:', err);
   }
 
-  if (isSupabaseConfigured) {
-    try {
-      const { error } = await supabase.from('teamLeaders').update(record).eq('id', item.id);
-      notifyIfRlsError('teamLeaders', error);
-      broadcastGlobalSync('teamLeaders');
-    } catch (e) {
-      console.error('Supabase teamLeader update error:', e);
-    }
-  }
+  await apiRequest(`/api/teamLeaders/${encodeURIComponent(item.id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(record)
+  });
+
+  broadcastGlobalSync('teamLeaders');
 }
 
 export async function deleteTeamLeaderDoc(id: string) {
@@ -985,16 +922,16 @@ export async function deleteTeamLeaderDoc(id: string) {
     console.error('Failed to delete team leader from localStorage:', err);
   }
 
-  if (isSupabaseConfigured) {
-    try {
-      const { error } = await supabase.from('teamLeaders').delete().eq('id', id);
-      notifyIfRlsError('teamLeaders', error);
-      broadcastGlobalSync('teamLeaders');
-    } catch (e) {
-      console.error('Supabase teamLeader delete error:', e);
-    }
-  }
+  await apiRequest(`/api/teamLeaders/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
+
+  broadcastGlobalSync('teamLeaders');
 }
+
+// ==========================================
+// 8. FEEDBACKS
+// ==========================================
 
 export interface FeedbackRecord {
   id: string;
@@ -1027,5 +964,11 @@ export async function addFeedbackDoc(feedback: {
     const existing = getLocal<FeedbackRecord[]>('eeu-feedback-records', []);
     setLocal('eeu-feedback-records', [record, ...existing]);
   } catch {}
+
+  await apiRequest('/api/feedbacks', {
+    method: 'POST',
+    body: JSON.stringify(record)
+  });
+
   return record;
 }

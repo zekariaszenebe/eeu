@@ -60,13 +60,18 @@ export const supabase = createClient(clientUrl, clientKey, {
 export async function checkSupabaseHealth(): Promise<{ connected: boolean; count: number; latencyMs: number; error?: string }> {
   const start = Date.now();
   try {
-    const { data, error } = await supabase.from('interruptions').select('id', { count: 'exact' });
+    const res = await fetch('/api/proxy-status');
     const latencyMs = Date.now() - start;
-    if (error) {
-      return { connected: false, count: 0, latencyMs, error: error.message };
+    if (res.ok) {
+      const info = await res.json();
+      return {
+        connected: info.ok === true && info.supabaseConnected !== false,
+        count: info.interruptionCount ?? 0,
+        latencyMs
+      };
     }
-    return { connected: true, count: data ? data.length : 0, latencyMs };
+    return { connected: false, count: 0, latencyMs, error: `Proxy status ${res.status}` };
   } catch (err: any) {
-    return { connected: false, count: 0, latencyMs: Date.now() - start, error: err?.message || 'Network error' };
+    return { connected: false, count: 0, latencyMs: Date.now() - start, error: err?.message || 'Server proxy connection error' };
   }
 }
