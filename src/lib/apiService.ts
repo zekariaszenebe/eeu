@@ -29,10 +29,69 @@ export function setLocal<T>(key: string, data: T) {
   }
 }
 
-// Server API request helper with JSON parsing and fallback error handling
-async function apiRequest<T>(url: string, options?: RequestInit): Promise<T | null> {
+// Base URL for API calls: empty string for same-origin proxy (Render/Node), or custom proxy URL for GitHub Pages
+export function getApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('eeu-api-proxy-url');
+    if (custom && custom.trim()) {
+      return custom.trim().replace(/\/$/, '');
+    }
+  }
+  const envUrl = (import.meta.env.VITE_API_PROXY_URL as string | undefined)?.trim();
+  if (envUrl) {
+    return envUrl.replace(/\/$/, '');
+  }
+  return '';
+}
+
+export function setApiProxyUrl(url: string) {
+  if (typeof window !== 'undefined') {
+    const clean = (url || '').trim().replace(/\/$/, '');
+    if (!clean) {
+      localStorage.removeItem('eeu-api-proxy-url');
+    } else {
+      localStorage.setItem('eeu-api-proxy-url', clean);
+    }
+    // Re-initialize SSE
+    if (eventSourceInstance) {
+      eventSourceInstance.close();
+      eventSourceInstance = null;
+    }
+    eventSourceInitialized = false;
+    initRealtimeEvents();
+  }
+}
+
+export function isGitHubPagesDeployment(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.location.hostname.endsWith('github.io') || window.location.hostname.includes('github.io');
+}
+
+export async function testProxyConnection(urlCandidate?: string): Promise<{ ok: boolean; message: string; mode?: string }> {
+  const target = (urlCandidate !== undefined ? urlCandidate.trim().replace(/\/$/, '') : getApiBaseUrl());
   try {
-    const res = await fetch(url, {
+    const res = await fetch(`${target}/api/proxy-status`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) {
+      return { ok: false, message: `Server returned HTTP ${res.status}` };
+    }
+    const data = await res.json();
+    return { ok: true, message: 'Connected successfully to backend proxy!', mode: data?.mode || 'proxy' };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Failed to reach server' };
+  }
+}
+
+export const API_BASE_URL = getApiBaseUrl();
+
+// Server API request helper with JSON parsing and fallback error handling
+async function apiRequest<T>(endpoint: string, options?: RequestInit): Promise<T | null> {
+  const baseUrl = getApiBaseUrl();
+  const fullUrl = `${baseUrl}${endpoint}`;
+  try {
+    const res = await fetch(fullUrl, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -40,12 +99,12 @@ async function apiRequest<T>(url: string, options?: RequestInit): Promise<T | nu
       }
     });
     if (!res.ok) {
-      console.warn(`[API Proxy ${options?.method || 'GET'} ${url} returned ${res.status}]`);
+      console.warn(`[API Proxy ${options?.method || 'GET'} ${fullUrl} returned ${res.status}]`);
       return null;
     }
     return (await res.json()) as T;
   } catch (err: any) {
-    console.warn(`[API Proxy request failed for ${url}]:`, err?.message);
+    console.warn(`[API Proxy request failed for ${fullUrl}]:`, err?.message);
     return null;
   }
 }
@@ -77,7 +136,8 @@ function initRealtimeEvents() {
       if (eventSourceInstance) {
         eventSourceInstance.close();
       }
-      eventSourceInstance = new EventSource('/api/events');
+      const baseUrl = getApiBaseUrl();
+      eventSourceInstance = new EventSource(`${baseUrl}/api/events`);
 
       eventSourceInstance.onmessage = (event) => {
         try {

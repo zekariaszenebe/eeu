@@ -144,6 +144,17 @@ async function startServer() {
 
   app.use(express.json({ limit: '10mb' }));
 
+  // CORS middleware to support frontends deployed on GitHub Pages or custom domains
+  app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   // Initialize DB data from Supabase
   initServerDatabase().catch(err => console.error('[Server DB Init Error]:', err));
 
